@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Peerless Squirrel Shooter</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rye&family=Cabin+Sketch:wght@400;700&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { overflow:hidden; user-select:none; cursor:none; font-family:'Cabin Sketch',cursive; }
+
+  #bg-canvas   { position:fixed; inset:0; z-index:0; }
+  #game-canvas { position:fixed; inset:0; z-index:10; }
+
+  /* ── HUD ── */
+  #hud {
+    position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 20px;
+    background:linear-gradient(to bottom,rgba(0,0,0,0.65),transparent);
+    pointer-events:none;
+  }
+  .hud-box {
+    background:rgba(0,0,0,0.55); border:2px solid #8b5e1a; border-radius:8px;
+    padding:5px 14px; color:#f5c87a; font-size:17px; font-family:'Rye',serif;
+    text-shadow:0 0 10px #f5a72060; min-width:110px; text-align:center;
+  }
+  .hud-box span { font-size:20px; color:#fff8e0; }
+  #health-bar-wrap { display:flex; align-items:center; gap:8px; }
+  #health-bar {
+    width:150px; height:15px; background:#330000;
+    border:2px solid #8b1a1a; border-radius:8px; overflow:hidden;
+  }
+  #health-fill {
+    height:100%; background:linear-gradient(to right,#e03030,#ff6060);
+    border-radius:6px; transition:width 0.35s;
+  }
+  #health-bar-wrap.pulse #health-bar {
+    animation: hpPulse 0.55s ease-out;
+  }
+  @keyframes hpPulse {
+    0%   { box-shadow:none; transform:scaleX(1); }
+    25%  { box-shadow:0 0 0 5px rgba(255,0,0,0.8); transform:scaleX(1.04); }
+    60%  { box-shadow:0 0 0 2px rgba(255,0,0,0.3); transform:scaleX(0.98); }
+    100% { box-shadow:none; transform:scaleX(1); }
+  }
+
+  #level-progress { display:flex; gap:4px; align-items:center; }
+  .progress-dot { width:11px; height:11px; border-radius:50%; border:2px solid #8b5e1a; background:#2a1500; transition:background 0.3s; }
+  .progress-dot.done    { background:#f5c87a; }
+  .progress-dot.current { background:#ff9930; box-shadow:0 0 8px #ff9930; }
+
+  /* ── Screens ── */
+  .screen {
+    position:fixed; inset:0; z-index:200;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at center,rgba(20,40,5,0.93),rgba(5,10,2,0.97));
+  }
+  .screen h1 {
+    font-family:'Rye',serif; font-size:clamp(38px,6vw,78px); color:#c8f060;
+    text-shadow:0 0 30px #88dd00,3px 3px 0 #1a3a00; margin-bottom:8px; text-align:center;
+  }
+  .screen .subtitle { font-size:clamp(14px,2.2vw,20px); color:#a0c870; margin-bottom:36px; text-align:center; max-width:480px; line-height:1.6; }
+  .btn {
+    font-family:'Rye',serif; font-size:20px;
+    background:linear-gradient(to bottom,#5a8a20,#2d5010);
+    color:#e8ffc0; border:3px solid #88cc40; border-radius:10px;
+    padding:13px 36px; cursor:pointer;
+    box-shadow:0 4px 20px rgba(100,200,0,0.3),3px 3px 0 #0a1a00;
+    transition:all 0.15s; margin:6px;
+  }
+  .btn:hover { transform:translateY(-3px); box-shadow:0 8px 30px rgba(120,220,0,0.5),3px 3px 0 #0a1a00; }
+  .btn:active { transform:translateY(1px); }
+
+  #level-banner {
+    position:fixed; top:50%; left:50%;
+    transform:translate(-50%,-50%) scale(0);
+    z-index:150; font-family:'Rye',serif; font-size:clamp(32px,5.5vw,68px);
+    color:#c8f060; text-shadow:0 0 40px #88dd00,3px 3px 0 #0a1a00;
+    text-align:center; pointer-events:none;
+    transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1); white-space:nowrap;
+  }
+  #level-banner.show { transform:translate(-50%,-50%) scale(1); }
+
+  /* ── Damage flash (light hit) ── */
+  #damage-overlay {
+    position:fixed; inset:0; pointer-events:none; z-index:90;
+    opacity:0; transition:opacity 0.07s;
+    background:radial-gradient(ellipse at center,rgba(255,0,0,0.1) 0%,rgba(220,0,0,0.55) 100%);
+  }
+  #damage-overlay.flash { opacity:1; }
+
+  /* ── DRAMATIC BITE OVERLAY ── */
+  #bite-overlay {
+    position:fixed; inset:0; z-index:400; pointer-events:none;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(80,0,0,0);
+    transition:background 0.1s;
+  }
+  #bite-overlay.active { background:rgba(80,0,0,0.72); }
+
+  #bite-canvas {
+    position:absolute; inset:0; width:100%; height:100%;
+  }
+
+  #bite-text {
+    position:absolute;
+    top:12%; left:50%; transform:translateX(-50%);
+    font-family:'Rye',serif; font-size:clamp(32px,6vw,72px);
+    color:#ff1010; text-shadow:0 0 40px #ff0000, 3px 3px 0 #000;
+    white-space:nowrap; z-index:401;
+    opacity:0; transition:opacity 0.1s 0.08s;
+    letter-spacing:3px;
+  }
+  #bite-overlay.active #bite-text { opacity:1; }
+
+  /* ── Screen shake ── */
+  @keyframes screenShake {
+    0%   { transform:translate(0,0)    rotate(0deg);    }
+    8%   { transform:translate(-14px, 10px) rotate(-2deg);  }
+    20%  { transform:translate(16px,-12px)  rotate(2.2deg); }
+    35%  { transform:translate(-11px,14px)  rotate(-1.5deg);}
+    50%  { transform:translate(10px,-8px)   rotate(1.2deg); }
+    65%  { transform:translate(-7px, 6px)   rotate(-0.8deg);}
+    80%  { transform:translate(5px,-4px)    rotate(0.4deg); }
+    100% { transform:translate(0,0)    rotate(0deg);    }
+  }
+  body.shake { animation:screenShake 0.6s ease-out; }
+
+  /* Score popup */
+  .score-popup {
+    position:fixed; font-family:'Rye',serif; font-size:26px; color:#ffffa0;
+    text-shadow:2px 2px 0 #1a3a00; pointer-events:none; z-index:201;
+    animation:scoreFloat 0.85s ease-out forwards;
+  }
+  @keyframes scoreFloat { 0%{opacity:1;transform:translateY(0) scale(1.2)} 100%{opacity:0;transform:translateY(-60px) scale(0.8)} }
+  @keyframes shotFlash  { 0%{opacity:1;transform:translate(-50%,-50%) scale(0.2)} 50%{opacity:1;transform:translate(-50%,-50%) scale(1.4)} 100%{opacity:0;transform:translate(-50%,-50%) scale(0.9)} }
+
+  .big-emoji  { font-size:72px; margin-bottom:8px; animation:bounce 1s infinite; }
+  @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-12px)} }
+  .score-big  { font-family:'Rye',serif; font-size:32px; color:#e8ffc0; margin:8px 0 26px; text-shadow:0 0 15px rgba(120,220,0,0.5); }
+
+  #crosshair  { position:fixed; width:40px; height:40px; pointer-events:none; z-index:999; transform:translate(-50%,-50%); transition:transform 0.05s; }
+  #crosshair.fired { transform:translate(-50%,-50%) scale(1.6); }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+<canvas id="game-canvas"></canvas>
+
+<div id="damage-overlay"></div>
+
+<!-- Dramatic bite overlay -->
+<div id="bite-overlay">
+  <canvas id="bite-canvas"></canvas>
+  <div id="bite-text">🩸 IT BIT YOU! 🩸</div>
+</div>
+
+<div id="hud">
+  <div class="hud-box">LVL <span id="hud-level">1</span>/10</div>
+  <div id="level-progress"></div>
+  <div class="hud-box">⭐ <span id="hud-score">0</span></div>
+  <div id="health-bar-wrap">
+    <div style="color:#f5c87a;font-family:'Rye',serif;font-size:18px;">❤️</div>
+    <div id="health-bar"><div id="health-fill" style="width:100%"></div></div>
+  </div>
+  <div class="hud-box">🐿 <span id="hud-remaining">0</span></div>
+</div>
+
+<div id="level-banner"></div>
+
+<!-- Screens -->
+<div class="screen" id="start-screen">
+  <div class="big-emoji">🩸</div>
+  <h1>PEERLESS<br>SQUIRREL<br>SHOOTER</h1>
+  <div class="subtitle">Ravenous squirrels are charging across your backyard — straight at your FACE!<br>Shoot them before they reach the screen and bite you!</div>
+  <button class="btn" onclick="startGame()">🔫 Start Shooting!</button>
+</div>
+<div class="screen" id="level-clear-screen" style="display:none">
+  <div class="big-emoji" id="clear-emoji">🎉</div>
+  <h1 id="clear-title">Level Clear!</h1>
+  <div class="subtitle" id="clear-sub"></div>
+  <div class="score-big" id="clear-score"></div>
+  <button class="btn" onclick="nextLevel()">Next Level ➡️</button>
+</div>
+<div class="screen" id="gameover-screen" style="display:none">
+  <div class="big-emoji">💀</div>
+  <h1 style="color:#ff5555">GAME OVER</h1>
+  <div class="subtitle">Nibbled to oblivion.</div>
+  <div class="score-big" id="gameover-score"></div>
+  <button class="btn" onclick="restartGame()">🔄 Try Again</button>
+</div>
+<div class="screen" id="win-screen" style="display:none">
+  <div class="big-emoji">🏆</div>
+  <h1>YOU WIN!</h1>
+  <div class="subtitle">Your backyard is safe... for now.</div>
+  <div class="score-big" id="win-score"></div>
+  <button class="btn" onclick="restartGame()">🔄 Play Again</button>
+</div>
+
+<svg id="crosshair" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="20" cy="20" r="14" fill="none" stroke="#ff4" stroke-width="2" opacity="0.9"/>
+  <circle cx="20" cy="20" r="3" fill="#f00"/>
+  <line x1="20" y1="2"  x2="20" y2="12" stroke="#ff4" stroke-width="2"/>
+  <line x1="20" y1="28" x2="20" y2="38" stroke="#ff4" stroke-width="2"/>
+  <line x1="2"  y1="20" x2="12" y2="20" stroke="#ff4" stroke-width="2"/>
+  <line x1="28" y1="20" x2="38" y2="20" stroke="#ff4" stroke-width="2"/>
+</svg>
+
+<script>
+// ═══════════════════════════════════════════════
+//  AUDIO ENGINE
+// ═══════════════════════════════════════════════
+let audioCtx = null;
+function getAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+function playPop() {
+  try {
+    const ctx=getAudio(), t=ctx.currentTime;
+    const len=Math.floor(ctx.sampleRate*0.22);
+    const buf=ctx.createBuffer(1,len,ctx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,1.8);
+    const src=ctx.createBufferSource(); src.buffer=buf;
+    src.playbackRate.setValueAtTime(4.5,t); src.playbackRate.exponentialRampToValueAtTime(0.35,t+0.18);
+    const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1800; bp.Q.value=1.2;
+    const g1=ctx.createGain(); g1.gain.setValueAtTime(0.7,t); g1.gain.exponentialRampToValueAtTime(0.001,t+0.22);
+    src.connect(bp);bp.connect(g1);g1.connect(ctx.destination);src.start(t);src.stop(t+0.24);
+    const osc=ctx.createOscillator(); osc.type='sine';
+    osc.frequency.setValueAtTime(300,t); osc.frequency.exponentialRampToValueAtTime(30,t+0.14);
+    const g2=ctx.createGain(); g2.gain.setValueAtTime(0.6,t); g2.gain.exponentialRampToValueAtTime(0.001,t+0.15);
+    osc.connect(g2);g2.connect(ctx.destination);osc.start(t);osc.stop(t+0.16);
+  } catch(e){}
+}
+function playBite() {
+  try {
+    const ctx=getAudio(), t=ctx.currentTime;
+    // Hard CRUNCH
+    for(let pass=0;pass<3;pass++){
+      const delay=pass*0.06;
+      const len=Math.floor(ctx.sampleRate*(0.18-pass*0.03));
+      const buf=ctx.createBuffer(1,len,ctx.sampleRate);
+      const d=buf.getChannelData(0);
+      for(let i=0;i<len;i++){
+        const env=Math.pow(1-i/len, 1.0+pass*0.3);
+        d[i]=(Math.random()*2-1)*env*(Math.sin(i*(0.5+pass*0.3))>0?1:-0.8);
+      }
+      const src=ctx.createBufferSource(); src.buffer=buf;
+      const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1200-pass*200;
+      const g=ctx.createGain(); g.gain.setValueAtTime(1.1-pass*0.2,t+delay); g.gain.exponentialRampToValueAtTime(0.001,t+delay+0.2);
+      src.connect(lp);lp.connect(g);g.connect(ctx.destination);
+      src.start(t+delay); src.stop(t+delay+0.22);
+    }
+    // Terrifying low growl
+    const osc=ctx.createOscillator(); osc.type='sawtooth';
+    osc.frequency.setValueAtTime(80,t); osc.frequency.exponentialRampToValueAtTime(35,t+0.4);
+    const og=ctx.createGain(); og.gain.setValueAtTime(0.35,t); og.gain.exponentialRampToValueAtTime(0.001,t+0.45);
+    osc.connect(og);og.connect(ctx.destination);osc.start(t);osc.stop(t+0.48);
+  } catch(e){}
+}
+function playGunshot() {
+  try {
+    const ctx=getAudio(), t=ctx.currentTime;
+    const len=Math.floor(ctx.sampleRate*0.09);
+    const buf=ctx.createBuffer(1,len,ctx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,0.22);
+    const src=ctx.createBufferSource(); src.buffer=buf;
+    const hp=ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=120;
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.35,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.09);
+    src.connect(hp);hp.connect(g);g.connect(ctx.destination);src.start(t);src.stop(t+0.11);
+  } catch(e){}
+}
+
+// ═══════════════════════════════════════════════
+//  BACKGROUND
+// ═══════════════════════════════════════════════
+const bgCanvas=document.getElementById('bg-canvas');
+const bgCtx=bgCanvas.getContext('2d');
+
+function drawBackground(){
+  const W=bgCanvas.width=window.innerWidth;
+  const H=bgCanvas.height=window.innerHeight;
+  const g=bgCtx;
+
+  // Sky
+  const sky=g.createLinearGradient(0,0,0,H*0.52);
+  sky.addColorStop(0,'#87ceeb'); sky.addColorStop(0.6,'#b8e0f7'); sky.addColorStop(1,'#d4edf7');
+  g.fillStyle=sky; g.fillRect(0,0,W,H*0.52);
+
+  // Clouds
+  function cloud(cx,cy,sc){
+    g.save(); g.translate(cx,cy); g.scale(sc,sc);
+    g.fillStyle='rgba(255,255,255,0.88)';
+    [[0,0,50],[42,-10,40],[82,0,46],[122,-5,38],[157,5,42]].forEach(([x,y,r])=>{g.beginPath();g.arc(x,y,r,0,Math.PI*2);g.fill();});
+    g.restore();
+  }
+  cloud(W*0.07,H*0.07,0.9); cloud(W*0.3,H*0.04,1.1); cloud(W*0.61,H*0.06,0.8); cloud(W*0.81,H*0.10,1.0);
+
+  // Sun
+  const sx=W*0.87,sy=H*0.09;
+  const sg=g.createRadialGradient(sx,sy,8,sx,sy,65);
+  sg.addColorStop(0,'rgba(255,240,100,1)'); sg.addColorStop(0.4,'rgba(255,200,50,0.6)'); sg.addColorStop(1,'rgba(255,200,50,0)');
+  g.fillStyle=sg; g.fillRect(sx-65,sy-65,130,130);
+  g.fillStyle='#ffe050'; g.beginPath(); g.arc(sx,sy,22,0,Math.PI*2); g.fill();
+
+  // Back fence
+  const fY=H*0.44;
+  g.fillStyle='#C4956A';
+  for(let x=0;x<W;x+=28){
+    g.beginPath(); g.moveTo(x+1,fY-80); g.lineTo(x+14,fY-96); g.lineTo(x+27,fY-80);
+    g.lineTo(x+27,fY-2); g.lineTo(x+1,fY-2); g.closePath(); g.fill();
+  }
+  g.fillStyle='#9B7350'; g.fillRect(0,fY-56,W,8); g.fillRect(0,fY-26,W,8);
+  // Post shadows
+  g.fillStyle='rgba(0,0,0,0.1)';
+  for(let x=0;x<W;x+=28){ g.fillRect(x+18,fY-80,8,78); }
+
+  // Grass layers (back to front = farther to closer)
+  function grass(y0,y1,c0,c1){ const gr=g.createLinearGradient(0,y0,0,y1); gr.addColorStop(0,c0); gr.addColorStop(1,c1); g.fillStyle=gr; g.fillRect(0,y0,W,y1-y0); }
+  grass(fY-8,fY+45,'#2d6e1a','#3a8a22');
+  grass(fY+42,H*0.70,'#3a8a22','#4aaa2e');
+  grass(H*0.68,H*0.86,'#4aaa2e','#5ac83a');
+  grass(H*0.84,H,'#3d9020','#4aaa28');
+
+  // Grass blades
+  g.lineWidth=1.5;
+  function blades(baseY,n,h,col){ g.strokeStyle=col;
+    for(let i=0;i<n;i++){ const bx=(Math.sin(i*137.5)*0.5+0.5)*W, by=baseY+Math.sin(i*53)*5;
+      g.beginPath(); g.moveTo(bx,by); g.quadraticCurveTo(bx+Math.sin(i*31)*8,by-h*0.6,bx+Math.sin(i*17)*5,by-h); g.stroke(); }
+  }
+  blades(fY+30,55,20,'#2a6014'); blades(H*0.68,75,28,'#2a7014'); blades(H*0.84,95,22,'#1e5010');
+
+  // Bushes near fence
+  function bush(bx,by,r,col){ for(let i=0;i<10;i++){ const a=i/10*Math.PI*2;
+      g.beginPath(); g.arc(bx+Math.cos(a)*r*0.5,by+Math.sin(a)*r*0.3,r*0.55,0,Math.PI*2); g.fillStyle=col; g.fill(); }
+    g.beginPath(); g.arc(bx,by,r*0.72,0,Math.PI*2); g.fillStyle=col; g.fill(); }
+  bush(W*0.06,fY+4,28,'#2d8a10'); bush(W*0.15,fY+8,22,'#358c15'); bush(W*0.78,fY+4,30,'#2d8a10'); bush(W*0.90,fY+6,24,'#358c15'); bush(W*0.45,fY+3,18,'#2a7a0e');
+
+  // Flowers
+  function flower(fx,fy,pc){ const np=5;
+    for(let p=0;p<np;p++){ const a=p/np*Math.PI*2; g.beginPath(); g.ellipse(fx+Math.cos(a)*7,fy+Math.sin(a)*7,5,3,a,0,Math.PI*2); g.fillStyle=pc; g.fill(); }
+    g.beginPath(); g.arc(fx,fy,4,0,Math.PI*2); g.fillStyle='#ffe050'; g.fill(); }
+  const flcols=['#ff6688','#ff88aa','#ffffff','#ffaacc','#ff44aa'];
+  for(let i=0;i<13;i++) flower(W*(0.03+i*0.075+Math.sin(i)*0.018),fY-4+Math.cos(i*3)*7,flcols[i%5]);
+
+  // Patio deck
+  const pY=H*0.87;
+  const pg=g.createLinearGradient(0,pY,0,H); pg.addColorStop(0,'#c8a878'); pg.addColorStop(1,'#b09060');
+  g.fillStyle=pg; g.fillRect(0,pY,W,H-pY);
+  g.strokeStyle='rgba(0,0,0,0.12)'; g.lineWidth=1.5;
+  for(let y=pY+14;y<H;y+=22){ g.beginPath();g.moveTo(0,y);g.lineTo(W,y);g.stroke(); }
+  for(let x=0;x<W;x+=58){ g.beginPath();g.moveTo(x,pY);g.lineTo(x,H);g.stroke(); }
+
+  // Lawn chair
+  const cX=W*0.76,cY=pY-4;
+  g.fillStyle='rgba(180,100,40,0.75)';
+  g.fillRect(cX,cY-42,8,47); g.fillRect(cX+46,cY-42,8,47);
+  g.fillRect(cX,cY-42,54,11); g.fillRect(cX,cY-16,54,8);
+
+  // Potted plant
+  const pX=W*0.18;
+  g.fillStyle='#9b6030'; g.beginPath(); g.moveTo(pX-14,pY+4);g.lineTo(pX+14,pY+4);g.lineTo(pX+10,pY+28);g.lineTo(pX-10,pY+28);g.fill();
+  g.fillStyle='#2d8a10';
+  for(let i=0;i<5;i++){ const a=-Math.PI/2+i*0.7-1.4; g.beginPath();g.ellipse(pX+Math.cos(a)*16,pY-10+Math.sin(a)*16,12,6,a,0,Math.PI*2);g.fill(); }
+
+  // Vignettes (first-person feel)
+  const bv=g.createLinearGradient(0,H*0.87,0,H); bv.addColorStop(0,'transparent');bv.addColorStop(1,'rgba(0,0,0,0.4)');
+  g.fillStyle=bv; g.fillRect(0,H*0.87,W,H*0.13);
+  const lv=g.createLinearGradient(0,0,W*0.13,0); lv.addColorStop(0,'rgba(0,0,0,0.32)');lv.addColorStop(1,'transparent');
+  g.fillStyle=lv; g.fillRect(0,0,W*0.13,H);
+  const rv=g.createLinearGradient(W*0.87,0,W,0); rv.addColorStop(0,'transparent');rv.addColorStop(1,'rgba(0,0,0,0.32)');
+  g.fillStyle=rv; g.fillRect(W*0.87,0,W*0.13,H);
+}
+
+// ═══════════════════════════════════════════════
+//  SQUIRREL DRAW (Canvas 2D)
+// ═══════════════════════════════════════════════
+const gameCanvas=document.getElementById('game-canvas');
+const gc=gameCanvas.getContext('2d');
+
+function drawSquirrel(ctx, s, angry, blood, fr){
+  ctx.save();
+  // Body
+  ctx.fillStyle=angry?'#8B3010':'#7a4e1e';
+  ctx.beginPath(); ctx.ellipse(0,0,s*0.55,s*0.4,0,0,Math.PI*2); ctx.fill();
+  // Belly
+  ctx.fillStyle=angry?'#cc6030':'#c8903a';
+  ctx.beginPath(); ctx.ellipse(s*0.08,s*0.05,s*0.28,s*0.22,0,0,Math.PI*2); ctx.fill();
+  // Tail
+  ctx.fillStyle=angry?'#6a2008':'#5a3412';
+  ctx.beginPath(); ctx.ellipse(-s*0.35,-s*0.3,s*0.46,s*0.36,-Math.PI*0.35,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle=angry?'#994020':'#8B5e2a';
+  ctx.beginPath(); ctx.ellipse(-s*0.46,-s*0.43,s*0.22,s*0.16,-Math.PI*0.4,0,Math.PI*2); ctx.fill();
+  // Scrambling legs (animated)
+  const lw=Math.sin(fr*0.35)*0.18;
+  ctx.fillStyle=angry?'#7a2808':'#6a4018';
+  ctx.beginPath(); ctx.ellipse(-s*0.28,s*0.33+lw*s,s*0.12,s*0.23,0.3+lw,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(-s*0.10,s*0.36-lw*s,s*0.12,s*0.23,-0.2-lw,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(s*0.38,s*0.26-lw*s,s*0.10,s*0.20,0.5+lw,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(s*0.50,s*0.16+lw*s,s*0.10,s*0.20,-0.3-lw,0,Math.PI*2); ctx.fill();
+  // Claws
+  ctx.strokeStyle='#111'; ctx.lineWidth=s*0.025;
+  [[s*0.52,s*0.33],[s*0.59,s*0.22],[s*0.55,s*0.12]].forEach(([cx,cy])=>{
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+s*0.1,cy+s*0.09);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+s*0.13,cy+s*0.02);ctx.stroke();
+  });
+  // Head
+  ctx.fillStyle=angry?'#8B3010':'#7a4e1e';
+  ctx.beginPath(); ctx.ellipse(s*0.60,-s*0.05,s*0.32,s*0.26,0.15,0,Math.PI*2); ctx.fill();
+  // Ears
+  ctx.fillStyle=angry?'#7a2808':'#6a3e12';
+  ctx.beginPath(); ctx.ellipse(s*0.52,-s*0.26,s*0.10,s*0.15,-0.4,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(s*0.68,-s*0.29,s*0.09,s*0.13,0.3,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#e06060';
+  ctx.beginPath(); ctx.ellipse(s*0.52,-s*0.26,s*0.055,s*0.09,-0.4,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(s*0.68,-s*0.29,s*0.05,s*0.08,0.3,0,Math.PI*2); ctx.fill();
+  // Eyes – bloodshot
+  const eX=s*0.65, eY=-s*0.09;
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.ellipse(eX,eY,s*0.1,s*0.09,0,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='rgba(200,0,0,0.55)'; ctx.lineWidth=s*0.016;
+  for(let i=0;i<4;i++){ const a=i*Math.PI*0.5+0.3; ctx.beginPath();ctx.moveTo(eX+Math.cos(a)*s*0.04,eY+Math.sin(a)*s*0.04);ctx.lineTo(eX+Math.cos(a)*s*0.09,eY+Math.sin(a)*s*0.09);ctx.stroke(); }
+  ctx.fillStyle=angry?'#cc0000':'#1a0a00';
+  ctx.beginPath(); ctx.arc(eX+s*0.02,eY+s*0.01,s*(angry?0.066:0.05),0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.9)';
+  ctx.beginPath(); ctx.arc(eX+s*0.01,eY-s*0.02,s*0.018,0,Math.PI*2); ctx.fill();
+  // Mouth – gaping maw, chomping
+  const mOpen=(angry?0.45:0.28)+Math.sin(fr*0.45)*0.12;
+  const mX=s*0.85, mY=s*0.04;
+  ctx.fillStyle='#0d0400';
+  ctx.beginPath(); ctx.ellipse(mX,mY+s*mOpen*0.38,s*0.22,s*mOpen*0.52+s*0.03,0.1,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#d02828';
+  ctx.beginPath(); ctx.ellipse(mX+s*0.04,mY+s*mOpen*0.55,s*0.13,s*0.1,0.2,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#fffde0';
+  [[mX-s*0.10,mY-s*0.02,1],[mX+s*0.02,mY-s*0.04,1],[mX-s*0.10,mY+s*mOpen*0.72,-1],[mX+s*0.04,mY+s*mOpen*0.77,-1]].forEach(([fx,fy,dir])=>{
+    ctx.beginPath();ctx.moveTo(fx,fy);ctx.lineTo(fx-s*0.04,fy+dir*s*0.13);ctx.lineTo(fx+s*0.04,fy+dir*s*0.13);ctx.closePath();ctx.fill();
+  });
+  // Blood drips
+  const drops=Math.ceil(blood*5);
+  for(let b=0;b<drops;b++){
+    const bx=[mX-s*0.12,mX+s*0.08,s*0.18,-s*0.10,s*0.42][b];
+    const by=[mY+s*mOpen*0.72,mY+s*mOpen*0.9,s*0.28,s*0.23,s*0.18][b];
+    const dl=s*(0.14+b*0.09+Math.sin(fr*0.18+b)*0.06);
+    ctx.beginPath();ctx.moveTo(bx-s*0.04,by);
+    ctx.bezierCurveTo(bx-s*0.04,by+dl*0.4,bx+s*0.04,by+dl*0.7,bx,by+dl);
+    ctx.bezierCurveTo(bx-s*0.04,by+dl,bx-s*0.05,by+dl*0.5,bx-s*0.04,by);
+    ctx.fillStyle='rgba(170,0,10,0.88)'; ctx.fill();
+    ctx.beginPath();ctx.arc(bx,by+dl+s*0.045,s*0.042,0,Math.PI*2);
+    ctx.fillStyle='#cc0010';ctx.fill();
+  }
+  // Nose
+  ctx.fillStyle='#2a0808'; ctx.beginPath();ctx.ellipse(s*0.94,0,s*0.056,s*0.04,0,0,Math.PI*2);ctx.fill();
+  // Whiskers
+  ctx.strokeStyle='rgba(255,240,200,0.7)'; ctx.lineWidth=s*0.015;
+  [[-0.3,-0.08],[-0.25,0.02],[0.25,-0.08],[0.3,0.02]].forEach(([wx,wy])=>{
+    ctx.beginPath();ctx.moveTo(s*0.88,s*0.02);ctx.lineTo(s*0.88+s*wx*0.6,s*wy*0.6+s*0.02);ctx.stroke();
+  });
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════
+//  BITE FACE on dedicated canvas
+// ═══════════════════════════════════════════════
+const biteCanvas=document.getElementById('bite-canvas');
+const biteCtx=biteCanvas.getContext('2d');
+let biteAnimFrame=0, biteRaf=null;
+
+function drawBiteFace(progress){
+  // progress 0→1: squirrel zooms in
+  const W=biteCanvas.width=window.innerWidth;
+  const H=biteCanvas.height=window.innerHeight;
+  biteCtx.clearRect(0,0,W,H);
+
+  // Draw HUGE squirrel centered, zoomed in like it's biting the camera
+  const s=Math.min(W,H)*(0.3+progress*0.55); // grows from 30% to 85% of screen
+  biteCtx.save();
+  biteCtx.translate(W/2-s*0.6, H/2+s*0.05);
+  // Enrage during bite
+  drawSquirrel(biteCtx, s, true, 1.0, biteAnimFrame);
+  biteCtx.restore();
+
+  // Blood splatter radial at edges
+  const splat=biteCtx.createRadialGradient(W/2,H/2,s*0.3,W/2,H/2,Math.max(W,H)*0.7);
+  splat.addColorStop(0,'rgba(150,0,0,0)');
+  splat.addColorStop(0.5,'rgba(170,0,0,0.25)');
+  splat.addColorStop(1,'rgba(100,0,0,0.7)');
+  biteCtx.fillStyle=splat; biteCtx.fillRect(0,0,W,H);
+
+  // Blood drip streaks from top
+  biteCtx.fillStyle='rgba(180,0,10,0.75)';
+  for(let i=0;i<8;i++){
+    const bx=W*(0.08+i*0.12+Math.sin(i*2.3)*0.04);
+    const bh=H*(0.05+progress*(0.1+i*0.03)+Math.sin(i*1.7)*0.04);
+    const bw=4+i%3*3;
+    biteCtx.beginPath();
+    biteCtx.moveTo(bx-bw,0); biteCtx.lineTo(bx+bw,0);
+    biteCtx.lineTo(bx+bw*0.5,bh); biteCtx.lineTo(bx-bw*0.5,bh);
+    biteCtx.closePath(); biteCtx.fill();
+    // Drip tip
+    biteCtx.beginPath();biteCtx.arc(bx,bh,bw*1.4,0,Math.PI*2);biteCtx.fill();
+  }
+}
+
+function startBiteAnimation(damage, onDone){
+  const overlay=document.getElementById('bite-overlay');
+  biteCanvas.width=window.innerWidth; biteCanvas.height=window.innerHeight;
+  overlay.classList.add('active');
+  let startTime=null;
+  const duration=700; // ms of build-up
+
+  function animLoop(ts){
+    if(!startTime) startTime=ts;
+    biteAnimFrame++;
+    const elapsed=ts-startTime;
+    const progress=Math.min(1, elapsed/duration);
+    drawBiteFace(progress);
+    if(elapsed<duration){ biteRaf=requestAnimationFrame(animLoop); }
+    else {
+      // Hold for a beat then fade out
+      setTimeout(()=>{
+        overlay.classList.remove('active');
+        biteCtx.clearRect(0,0,biteCanvas.width,biteCanvas.height);
+        onDone && onDone();
+      }, 350);
+    }
+  }
+  biteRaf=requestAnimationFrame(animLoop);
+}
+
+// ═══════════════════════════════════════════════
+//  WARNING ZONE (red pulse near bottom)
+// ═══════════════════════════════════════════════
+// Drawn each frame when squirrel is close to bottom
+function drawWarningZone(ctx, W, H, intensity){
+  if(intensity<=0) return;
+  const wg=ctx.createLinearGradient(0,H*0.72,0,H);
+  wg.addColorStop(0,'transparent');
+  wg.addColorStop(1,`rgba(255,0,0,${0.25*intensity})`);
+  ctx.fillStyle=wg; ctx.fillRect(0,H*0.72,W,H*0.28);
+  // Pulsing text
+  ctx.save();
+  ctx.globalAlpha=intensity*(0.7+Math.sin(frame*0.2)*0.3);
+  ctx.font=`bold ${Math.floor(18+intensity*10)}px 'Cabin Sketch', cursive`;
+  ctx.fillStyle='#ff2020';
+  ctx.textAlign='center';
+  ctx.shadowColor='#ff0000'; ctx.shadowBlur=12;
+  ctx.fillText('⚠ SHOOT IT! ⚠', W/2, H*0.82);
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════
+//  GAME STATE
+// ═══════════════════════════════════════════════
+const TOTAL_LEVELS=10;
+let level=1, score=0, health=100, gameActive=false;
+let squirrelList=[], spawnTimer=null, allTimers=[];
+let mouseX=window.innerWidth/2, mouseY=window.innerHeight/2;
+let frame=0, rafId=null;
+let biting=false; // lock out while bite animation plays
+
+const LEVEL_CONFIG=[
+  {count:5,  spawnDelay:2200, speed:1.1, damage:10},
+  {count:7,  spawnDelay:2000, speed:1.3, damage:12},
+  {count:9,  spawnDelay:1800, speed:1.55,damage:14},
+  {count:11, spawnDelay:1600, speed:1.8, damage:16},
+  {count:13, spawnDelay:1400, speed:2.1, damage:18},
+  {count:15, spawnDelay:1200, speed:2.4, damage:20},
+  {count:17, spawnDelay:1000, speed:2.8, damage:22},
+  {count:20, spawnDelay:850,  speed:3.2, damage:25},
+  {count:23, spawnDelay:700,  speed:3.8, damage:28},
+  {count:28, spawnDelay:500,  speed:4.5, damage:35},
+];
+
+// Squirrels run toward the BOTTOM CENTER of the screen (toward the player/camera)
+// Bite triggers when they reach near the very bottom edge
+const BITE_Y_THRESHOLD = 0.88; // fraction of screen height — squirrel bites when it reaches here
+
+document.addEventListener('mousemove',e=>{
+  mouseX=e.clientX; mouseY=e.clientY;
+  document.getElementById('crosshair').style.left=e.clientX+'px';
+  document.getElementById('crosshair').style.top=e.clientY+'px';
+});
+
+// ═══════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════
+function resize(){
+  gameCanvas.width=window.innerWidth; gameCanvas.height=window.innerHeight;
+  drawBackground();
+}
+
+function gameLoop(){
+  rafId=requestAnimationFrame(gameLoop);
+  frame++;
+  const W=gameCanvas.width, H=gameCanvas.height;
+  gc.clearRect(0,0,W,H);
+
+  let maxWarning=0;
+
+  for(let i=squirrelList.length-1;i>=0;i--){
+    const sq=squirrelList[i];
+    if(sq.dead||sq.bitten) continue;
+
+    // Target: bottom-center of screen (player POV)
+    const targetX=W/2 + (sq.laneOffset||0);
+    const targetY=H*BITE_Y_THRESHOLD;
+
+    const dx=targetX-sq.x, dy=targetY-sq.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+
+    sq.angle=Math.atan2(dy,dx);
+
+    // Close-in acceleration
+    const closeBoost=1+Math.max(0,1-dist/(H*0.4))*1.5;
+    const spd=sq.speed*(sq.angry?1.7:1.0)*closeBoost;
+
+    // How far down the screen the squirrel is (0=top, 1=bottom)
+    const screenProgress=sq.y/H;
+
+    // Go angry in bottom 35% of screen
+    if(!sq.angry && screenProgress>0.65){ sq.angry=true; }
+
+    // Warning intensity: 0 at 70% down, 1 at 87%
+    const warnT=Math.max(0,(screenProgress-0.70)/(0.17));
+    if(warnT>maxWarning) maxWarning=warnT;
+
+    // BITE — squirrel has reached the bottom edge (screen/player)
+    if(sq.y>=H*BITE_Y_THRESHOLD && !sq.bitten && !biting){
+      sq.bitten=true; sq.dead=true;
+      squirrelList.splice(i,1);
+      triggerBite(sq.damage, sq.onBit);
+      continue;
+    }
+
+    if(dist>2){
+      sq.x+=(dx/dist)*spd;
+      sq.y+=(dy/dist)*spd;
+    }
+
+    // Size: grows as squirrel moves down the screen (perspective zoom)
+    // Small at top (far away), huge at bottom (right in front of you)
+    const perspT=Math.pow(Math.max(0,sq.y/H),1.1);
+    sq.size=14+perspT*100; // 14px at top → ~114px at bottom
+
+    // Draw
+    gc.save();
+    gc.translate(sq.x,sq.y);
+    gc.rotate(sq.angle);
+    // Shadow on grass
+    gc.save();
+    gc.globalAlpha=0.18*perspT;
+    gc.fillStyle='#000';
+    gc.beginPath();gc.ellipse(0,sq.size*0.4,sq.size*0.7,sq.size*0.18,0,0,Math.PI*2);gc.fill();
+    gc.restore();
+    drawSquirrel(gc,sq.size,sq.angry,sq.blood,frame+sq.frameOffset);
+    gc.restore();
+  }
+
+  // Warning red zone at bottom when squirrel is close
+  drawWarningZone(gc, W, H, Math.min(1,maxWarning));
+
+  // Effects
+  for(let i=effects.length-1;i>=0;i--){
+    const ef=effects[i]; ef.life--;
+    if(ef.life<=0){effects.splice(i,1);continue;}
+    const t=ef.life/ef.maxLife;
+    gc.save(); gc.globalAlpha=t*0.88; gc.fillStyle=ef.color;
+    ef.particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=0.2;p.vx*=0.96;gc.beginPath();gc.arc(p.x,p.y,p.r*t,0,Math.PI*2);gc.fill();});
+    gc.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  EFFECTS
+// ═══════════════════════════════════════════════
+const effects=[];
+function spawnSplat(x,y){
+  const p=[]; for(let i=0;i<20;i++){const a=Math.random()*Math.PI*2,s=2+Math.random()*7;p.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-4,r:4+Math.random()*9});}
+  effects.push({type:'splat',life:50,maxLife:50,color:'#cc0010',particles:p});
+  const p2=[]; for(let i=0;i<10;i++){const a=Math.random()*Math.PI*2,s=3+Math.random()*8;p2.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-5,r:3+Math.random()*5});}
+  effects.push({type:'splat',life:32,maxLife:32,color:'#ffdd00',particles:p2});
+}
+
+// ═══════════════════════════════════════════════
+//  BITE TRIGGER
+// ═══════════════════════════════════════════════
+function triggerBite(damage, onBit){
+  biting=true;
+  playBite();
+
+  // Shake body
+  document.body.classList.add('shake');
+  setTimeout(()=>document.body.classList.remove('shake'),620);
+
+  // Quick red flash
+  const ov=document.getElementById('damage-overlay');
+  ov.classList.add('flash'); setTimeout(()=>ov.classList.remove('flash'),180);
+
+  // Health bar pulse
+  const hbw=document.getElementById('health-bar-wrap');
+  hbw.classList.add('pulse'); setTimeout(()=>hbw.classList.remove('pulse'),600);
+
+  // Dramatic face zoom-in
+  startBiteAnimation(damage, ()=>{
+    biting=false;
+    // Apply damage AFTER animation so the health drop is visible
+    health=Math.max(0,health-damage);
+    document.getElementById('health-fill').style.width=health+'%';
+    if(health<=0){ gameOver(); return; }
+    onBit && onBit();
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  SQUIRREL FACTORY
+// ═══════════════════════════════════════════════
+function spawnSquirrel(cfg,onKilled,onBit){
+  const W=gameCanvas.width, H=gameCanvas.height;
+  // Spawn along top or sides, high up on screen
+  const side=Math.floor(Math.random()*3); // 0=top, 1=left, 2=right
+  let x,y;
+  if(side===0){ x=W*0.1+Math.random()*W*0.8; y=-60; }
+  else if(side===1){ x=-60; y=Math.random()*H*0.4; }
+  else { x=W+60; y=Math.random()*H*0.4; }
+
+  // Each squirrel has a slightly different lane so they don't all pile on center
+  const laneOffset=(Math.random()-0.5)*W*0.35;
+
+  const sq={
+    x, y, laneOffset,
+    speed:cfg.speed, damage:cfg.damage,
+    angry:false, bitten:false, dead:false,
+    angle:Math.PI/2,
+    size:18,
+    blood:0.3+Math.random()*0.7,
+    frameOffset:Math.floor(Math.random()*100),
+    onKilled, onBit,
+    kill(){
+      if(this.dead||this.bitten) return false;
+      this.dead=true;
+      spawnSplat(this.x,this.y);
+      onKilled();
+      return true;
+    }
+  };
+  squirrelList.push(sq);
+}
+
+// ═══════════════════════════════════════════════
+//  SHOOT
+// ═══════════════════════════════════════════════
+document.getElementById('game-canvas').addEventListener('click',e=>{
+  if(!gameActive||biting) return;
+  playGunshot();
+  const ch=document.getElementById('crosshair');
+  ch.classList.add('fired'); setTimeout(()=>ch.classList.remove('fired'),160);
+
+  const flash=document.createElement('div');
+  flash.style.cssText=`position:fixed;width:70px;height:70px;border-radius:50%;
+    background:radial-gradient(circle,#ffffa0,#ff8800 40%,transparent 70%);
+    pointer-events:none;z-index:80;left:${e.clientX}px;top:${e.clientY}px;
+    transform:translate(-50%,-50%);animation:shotFlash 0.25s forwards;`;
+  document.body.appendChild(flash);
+  setTimeout(()=>flash.remove(),300);
+
+  for(let i=squirrelList.length-1;i>=0;i--){
+    const sq=squirrelList[i];
+    if(sq.dead||sq.bitten) continue;
+    const dx=e.clientX-sq.x, dy=e.clientY-sq.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    const hitR=sq.size*0.88;
+    if(dist<hitR){
+      if(sq.kill()){
+        playPop();
+        score+=level*10;
+        updateHUD();
+        showScorePopup(e.clientX,e.clientY,`+${level*10}`);
+        squirrelList.splice(i,1);
+        break;
+      }
+    }
+  }
+});
+
+// ═══════════════════════════════════════════════
+//  GAME FLOW
+// ═══════════════════════════════════════════════
+function buildProgressDots(){
+  const wrap=document.getElementById('level-progress'); wrap.innerHTML='';
+  for(let i=1;i<=TOTAL_LEVELS;i++){
+    const d=document.createElement('div');
+    d.className='progress-dot'+(i<level?' done':i===level?' current':'');
+    wrap.appendChild(d);
+  }
+}
+
+function startGame(){
+  level=1; score=0; health=100; biting=false;
+  ['start-screen','gameover-screen','win-screen','level-clear-screen'].forEach(id=>document.getElementById(id).style.display='none');
+  updateHUD(); buildProgressDots();
+  if(!rafId) gameLoop();
+  startLevel();
+}
+function restartGame(){ startGame(); }
+
+function startLevel(){
+  clearAll(); gameActive=true; updateHUD(); buildProgressDots();
+  const banner=document.getElementById('level-banner');
+  banner.textContent=level===10?'⚠️ FINAL LEVEL ⚠️':`🐿 LEVEL ${level}`;
+  banner.classList.add('show'); setTimeout(()=>banner.classList.remove('show'),1800);
+
+  const cfg=LEVEL_CONFIG[level-1];
+  const total=cfg.count;
+  document.getElementById('hud-remaining').textContent=total;
+  let remaining=total, spawned=0;
+
+  function spawnNext(){
+    if(!gameActive) return;
+    if(spawned<total){
+      spawnSquirrel(cfg,
+        ()=>{ remaining--; document.getElementById('hud-remaining').textContent=remaining; if(remaining<=0) levelClear(); },
+        ()=>{ remaining--; document.getElementById('hud-remaining').textContent=remaining; if(remaining<=0&&health>0) levelClear(); }
+      );
+      spawned++;
+      spawnTimer=setTimeout(spawnNext, cfg.spawnDelay*(0.7+Math.random()*0.6));
+    }
+  }
+  spawnNext();
+}
+
+function levelClear(){
+  if(!gameActive) return;
+  gameActive=false; clearAll();
+  const bonus=level*50+Math.floor(health*level); score+=bonus; updateHUD();
+  if(level>=TOTAL_LEVELS){ setTimeout(winGame,600); return; }
+  document.getElementById('level-clear-screen').style.display='flex';
+  document.getElementById('clear-title').textContent=`Level ${level} Clear!`;
+  document.getElementById('clear-emoji').textContent=level>=9?'🔥':'🎉';
+  document.getElementById('clear-sub').textContent=`Bonus: +${bonus} pts  |  Health: ${health}%`;
+  document.getElementById('clear-score').textContent=`⭐ Total Score: ${score}`;
+}
+function nextLevel(){ level++; document.getElementById('level-clear-screen').style.display='none'; startLevel(); }
+
+function gameOver(){
+  gameActive=false; clearAll();
+  document.getElementById('gameover-score').textContent=`⭐ Score: ${score}`;
+  setTimeout(()=>document.getElementById('gameover-screen').style.display='flex', 400);
+}
+function winGame(){
+  gameActive=false; clearAll();
+  document.getElementById('win-score').textContent=`⭐ Final Score: ${score}`;
+  document.getElementById('win-screen').style.display='flex';
+}
+function updateHUD(){
+  document.getElementById('hud-level').textContent=level;
+  document.getElementById('hud-score').textContent=score;
+  document.getElementById('hud-remaining').textContent=LEVEL_CONFIG[level-1]?.count||0;
+}
+function clearAll(){
+  clearTimeout(spawnTimer); allTimers.forEach(t=>clearTimeout(t)); allTimers=[];
+  squirrelList=[]; effects.length=0;
+}
+function showScorePopup(x,y,text){
+  const el=document.createElement('div'); el.className='score-popup'; el.textContent=text;
+  el.style.cssText=`left:${x-20}px;top:${y-30}px;`; document.body.appendChild(el);
+  setTimeout(()=>el.remove(),900);
+}
+
+// Inject keyframes
+const ss=document.createElement('style');
+ss.textContent=`
+  @keyframes shotFlash{0%{opacity:1;transform:translate(-50%,-50%) scale(0.2)}50%{opacity:1;transform:translate(-50%,-50%) scale(1.4)}100%{opacity:0;transform:translate(-50%,-50%) scale(0.9)}}
+`;
+document.head.appendChild(ss);
+
+// INIT
+window.addEventListener('resize',()=>{ resize(); drawBackground(); });
+resize();
+gameLoop();
+</script>
+</body>
+</html>
