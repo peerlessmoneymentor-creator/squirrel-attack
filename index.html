@@ -1,0 +1,3204 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Peerless Squirrel Shooter</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rye&family=Cabin+Sketch:wght@400;700&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { overflow:hidden; user-select:none; cursor:none; font-family:'Cabin Sketch',cursive; }
+
+  #bg-canvas   { position:fixed; inset:0; z-index:0; }
+  #anim-canvas { position:fixed; inset:0; z-index:5; pointer-events:none; }
+  #game-canvas { position:fixed; inset:0; z-index:10; pointer-events:none; }
+
+  /* ── HUD ── */
+  #hud {
+    position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; justify-content:space-between; align-items:center;
+    padding:10px 20px;
+    background:linear-gradient(to bottom,rgba(0,0,0,0.65),transparent);
+    pointer-events:none;
+  }
+  .hud-box {
+    background:rgba(0,0,0,0.55); border:2px solid #8b5e1a; border-radius:8px;
+    padding:5px 14px; color:#f5c87a; font-size:17px; font-family:'Rye',serif;
+    text-shadow:0 0 10px #f5a72060; min-width:110px; text-align:center;
+  }
+  .hud-box span { font-size:20px; color:#fff8e0; }
+  #health-bar-wrap { display:flex; align-items:center; gap:8px; }
+  #health-bar {
+    width:150px; height:15px; background:#330000;
+    border:2px solid #8b1a1a; border-radius:8px; overflow:hidden;
+  }
+  #health-fill {
+    height:100%; background:linear-gradient(to right,#e03030,#ff6060);
+    border-radius:6px; transition:width 0.35s;
+  }
+  #health-bar-wrap.pulse #health-bar {
+    animation: hpPulse 0.55s ease-out;
+  }
+  @keyframes hpPulse {
+    0%   { box-shadow:none; transform:scaleX(1); }
+    25%  { box-shadow:0 0 0 5px rgba(255,0,0,0.8); transform:scaleX(1.04); }
+    60%  { box-shadow:0 0 0 2px rgba(255,0,0,0.3); transform:scaleX(0.98); }
+    100% { box-shadow:none; transform:scaleX(1); }
+  }
+
+  #level-progress { display:flex; gap:4px; align-items:center; }
+  .progress-dot { width:11px; height:11px; border-radius:50%; border:2px solid #8b5e1a; background:#2a1500; transition:background 0.3s; }
+  .progress-dot.done    { background:#f5c87a; }
+  .progress-dot.current { background:#ff9930; box-shadow:0 0 8px #ff9930; }
+
+  /* ── Screens ── */
+  .screen {
+    position:fixed; inset:0; z-index:200;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at center,rgba(20,40,5,0.93),rgba(5,10,2,0.97));
+  }
+  .screen.hidden { display:none !important; pointer-events:none !important; }
+  .screen h1 {
+    font-family:'Rye',serif; font-size:clamp(38px,6vw,78px); color:#c8f060;
+    text-shadow:0 0 30px #88dd00,3px 3px 0 #1a3a00; margin-bottom:8px; text-align:center;
+  }
+  .screen .subtitle { font-size:clamp(14px,2.2vw,20px); color:#a0c870; margin-bottom:36px; text-align:center; max-width:480px; line-height:1.6; }
+  .btn {
+    font-family:'Rye',serif; font-size:20px;
+    background:linear-gradient(to bottom,#5a8a20,#2d5010);
+    color:#e8ffc0; border:3px solid #88cc40; border-radius:10px;
+    padding:13px 36px; cursor:pointer;
+    box-shadow:0 4px 20px rgba(100,200,0,0.3),3px 3px 0 #0a1a00;
+    transition:all 0.15s; margin:6px;
+  }
+  .btn:hover { transform:translateY(-3px); box-shadow:0 8px 30px rgba(120,220,0,0.5),3px 3px 0 #0a1a00; }
+  .btn:active { transform:translateY(1px); }
+
+  #level-banner {
+    position:fixed; top:50%; left:50%;
+    transform:translate(-50%,-50%) scale(0);
+    z-index:150; font-family:'Rye',serif; font-size:clamp(32px,5.5vw,68px);
+    color:#c8f060; text-shadow:0 0 40px #88dd00,3px 3px 0 #0a1a00;
+    text-align:center; pointer-events:none;
+    transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1); white-space:nowrap;
+  }
+  #level-banner.show { transform:translate(-50%,-50%) scale(1); }
+
+  /* ── Damage flash (light hit) ── */
+  #damage-overlay {
+    position:fixed; inset:0; pointer-events:none; z-index:90;
+    opacity:0; transition:opacity 0.07s;
+    background:radial-gradient(ellipse at center,rgba(255,0,0,0.1) 0%,rgba(220,0,0,0.55) 100%);
+  }
+  #damage-overlay.flash { opacity:1; }
+
+  /* ── DRAMATIC BITE OVERLAY ── */
+  #bite-overlay {
+    position:fixed; inset:0; z-index:400; pointer-events:none;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(80,0,0,0);
+    transition:background 0.1s;
+  }
+  #bite-overlay.active { background:rgba(80,0,0,0.72); }
+
+  #bite-canvas {
+    position:absolute; inset:0; width:100%; height:100%;
+  }
+
+  #bite-text {
+    position:absolute;
+    top:12%; left:50%; transform:translateX(-50%);
+    font-family:'Rye',serif; font-size:clamp(32px,6vw,72px);
+    color:#ff1010; text-shadow:0 0 40px #ff0000, 3px 3px 0 #000;
+    white-space:nowrap; z-index:401;
+    opacity:0; transition:opacity 0.1s 0.08s;
+    letter-spacing:3px;
+  }
+  #bite-overlay.active #bite-text { opacity:1; }
+
+  /* ── Screen shake ── */
+  @keyframes screenShake {
+    0%   { transform:translate(0,0)    rotate(0deg);    }
+    8%   { transform:translate(-14px, 10px) rotate(-2deg);  }
+    20%  { transform:translate(16px,-12px)  rotate(2.2deg); }
+    35%  { transform:translate(-11px,14px)  rotate(-1.5deg);}
+    50%  { transform:translate(10px,-8px)   rotate(1.2deg); }
+    65%  { transform:translate(-7px, 6px)   rotate(-0.8deg);}
+    80%  { transform:translate(5px,-4px)    rotate(0.4deg); }
+    100% { transform:translate(0,0)    rotate(0deg);    }
+  }
+  body.shake { animation:screenShake 0.6s ease-out; }
+
+  /* Score popup */
+  .score-popup {
+    position:fixed; font-family:'Rye',serif; font-size:26px; color:#ffffa0;
+    text-shadow:2px 2px 0 #1a3a00; pointer-events:none; z-index:201;
+    animation:scoreFloat 0.85s ease-out forwards;
+  }
+  @keyframes scoreFloat { 0%{opacity:1;transform:translateY(0) scale(1.2)} 100%{opacity:0;transform:translateY(-60px) scale(0.8)} }
+  @keyframes shotFlash  { 0%{opacity:1;transform:translate(-50%,-50%) scale(0.2)} 50%{opacity:1;transform:translate(-50%,-50%) scale(1.4)} 100%{opacity:0;transform:translate(-50%,-50%) scale(0.9)} }
+
+  .big-emoji  { font-size:72px; margin-bottom:8px; animation:bounce 1s infinite; }
+  @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-12px)} }
+  .score-big  { font-family:'Rye',serif; font-size:32px; color:#e8ffc0; margin:8px 0 26px; text-shadow:0 0 15px rgba(120,220,0,0.5); }
+
+
+  /* ── HAWK BUTTON ── */
+  #hawk-btn {
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    z-index:150; display:none;
+    font-family:'Rye',serif; font-size:17px;
+    background:linear-gradient(135deg,#7b3f00,#3e1f00);
+    color:#ffe082; border:3px solid #ffb300;
+    border-radius:50px; padding:12px 28px; cursor:pointer;
+    box-shadow:0 0 0 4px rgba(255,179,0,0.25), 0 6px 20px rgba(0,0,0,0.5);
+    animation:hawkPulse 1.2s ease-in-out infinite;
+    white-space:nowrap;
+  }
+  #hawk-btn:hover { transform:translateX(-50%) scale(1.06); box-shadow:0 0 0 6px rgba(255,179,0,0.4),0 8px 28px rgba(0,0,0,0.6); }
+  #hawk-btn:active { transform:translateX(-50%) scale(0.97); }
+  #hawk-btn.used  { display:none !important; }
+  #bonus-hawk-btn {
+    position:fixed; bottom:70px; left:50%; transform:translateX(-50%);
+    z-index:150;
+    font-family:'Rye',serif; font-size:17px;
+    background:linear-gradient(135deg,#003d7b,#001f40);
+    color:#80d8ff; border:3px solid #29b6f6;
+    border-radius:50px; padding:12px 28px; cursor:pointer;
+    box-shadow:0 0 0 4px rgba(41,182,246,0.25), 0 6px 20px rgba(0,0,0,0.5);
+    animation:bonusHawkPulse 1.2s ease-in-out infinite;
+    white-space:nowrap;
+  }
+  #bonus-hawk-btn:hover { transform:translateX(-50%) scale(1.06); }
+  #bonus-hawk-btn:active { transform:translateX(-50%) scale(0.97); }
+  @keyframes bonusHawkPulse {
+    0%,100% { box-shadow:0 0 0 4px rgba(41,182,246,0.25),0 6px 20px rgba(0,0,0,0.5); }
+    50%      { box-shadow:0 0 0 12px rgba(41,182,246,0.0),0 6px 20px rgba(0,0,0,0.5); }
+  }
+  @keyframes hawkPulse {
+    0%,100% { box-shadow:0 0 0 4px rgba(255,179,0,0.25),0 6px 20px rgba(0,0,0,0.5); }
+    50%      { box-shadow:0 0 0 10px rgba(255,179,0,0.0),0 6px 20px rgba(0,0,0,0.5); }
+  }
+
+
+  /* ── KILL STREAK COUNTER ── */
+  #streak-counter {
+    position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+    z-index:149; display:none;
+    font-family:'Rye',serif; font-size:14px; color:#ffe082;
+    background:rgba(0,0,0,0.6); border:2px solid rgba(255,179,0,0.4);
+    border-radius:30px; padding:5px 16px; white-space:nowrap;
+    letter-spacing:0.5px; pointer-events:none;
+  }
+  #streak-counter.show { display:block; animation:streakPop 0.2s cubic-bezier(0.34,1.56,0.64,1); }
+  @keyframes streakPop { from{transform:translateX(-50%) scale(0.7)} to{transform:translateX(-50%) scale(1)} }
+  /* Hawk in flight */
+  .hawk-el {
+    position:fixed; font-size:52px; z-index:130; pointer-events:none;
+    filter:drop-shadow(0 4px 8px rgba(0,0,0,0.5));
+    transition:left 0.05s, top 0.05s;
+  }
+  /* Hawk announcement banner */
+  #hawk-banner {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0);
+    z-index:160; font-family:'Rye',serif; font-size:clamp(28px,5vw,58px);
+    color:#ffe082; text-shadow:0 0 30px #ff8f00,3px 3px 0 #2a1000;
+    text-align:center; pointer-events:none;
+    transition:transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+    white-space:nowrap; line-height:1.3;
+  }
+  #hawk-banner.show { transform:translate(-50%,-50%) scale(1); }
+
+  /* ── END-GAME STATS CARD ── */
+  .stats-card {
+    background:rgba(0,0,0,0.35);
+    border:2px solid rgba(200,240,96,0.25);
+    border-radius:14px;
+    padding:14px 20px;
+    margin:12px 0 18px;
+    text-align:left;
+    width:100%;
+    max-width:340px;
+  }
+  .stats-card .stat-row {
+    display:flex; justify-content:space-between; align-items:center;
+    padding:5px 0; border-bottom:1px solid rgba(255,255,255,0.08);
+    font-family:'Cabin Sketch',cursive; font-size:15px; color:#e8ffc0;
+  }
+  .stats-card .stat-row:last-child { border-bottom:none; }
+  .stats-card .stat-label { color:#a0c870; font-size:13px; }
+  .stats-card .stat-val   { font-family:'Rye',serif; font-size:17px; color:#c8f060; }
+  .stats-card .stat-val.highlight { color:#ffd54f; font-size:20px; }
+  .stats-card .stat-val.danger    { color:#ff6b6b; }
+  .stats-card h3 {
+    font-family:'Rye',serif; font-size:14px; color:#88cc40;
+    letter-spacing:1px; margin-bottom:8px; opacity:0.8;
+    text-transform:uppercase;
+  }
+  .accuracy-bar-wrap { margin:4px 0 10px; }
+  .accuracy-bar-bg {
+    width:100%; height:12px; background:rgba(0,0,0,0.4);
+    border-radius:8px; overflow:hidden; border:1px solid rgba(255,255,255,0.1);
+  }
+  .accuracy-bar-fill {
+    height:100%; border-radius:8px;
+    background:linear-gradient(90deg,#ef5350,#ffd54f,#66bb6a);
+    transition:width 0.8s ease;
+  }
+  .accuracy-label {
+    font-family:'Rye',serif; font-size:22px; color:#ffd54f;
+    text-align:center; margin-top:6px;
+    text-shadow:0 0 12px rgba(255,213,79,0.5);
+  }
+  .rating-badge {
+    display:inline-block;
+    font-family:'Rye',serif; font-size:13px;
+    padding:3px 10px; border-radius:20px; margin-left:8px;
+    vertical-align:middle;
+  }
+
+  
+
+  /* ── BOSS HEALTH BAR ── */
+  #boss-bar-wrap {
+    position:fixed; top:60px; left:50%; transform:translateX(-50%);
+    z-index:160; display:none; flex-direction:column; align-items:center; gap:4px;
+    pointer-events:none;
+  }
+  #boss-bar-wrap.show { display:flex; }
+  #boss-bar-label { font-family:'Rye',serif; font-size:13px; color:#ff4444;
+    text-shadow:0 0 10px #ff0000; letter-spacing:1px; }
+  #boss-bar-track { width:220px; height:14px; background:rgba(0,0,0,0.6);
+    border:2px solid #ff4444; border-radius:8px; overflow:hidden; }
+  #boss-bar-fill { height:100%; width:100%;
+    background:linear-gradient(90deg,#ff1111,#ff6600);
+    border-radius:6px; transition:width 0.25s ease; }
+
+  /* ── POWERUP TOKENS ── */
+  .powerup-token {
+    position:fixed; font-size:32px; z-index:130; pointer-events:auto;
+    cursor:crosshair; animation:tokenBounce 0.5s ease-in-out infinite alternate;
+    filter:drop-shadow(0 0 10px rgba(255,220,50,0.9));
+    user-select:none;
+  }
+  @keyframes tokenBounce {
+    from { transform:translateY(0) scale(1); }
+    to   { transform:translateY(-8px) scale(1.1); }
+  }
+  .powerup-token.collected { animation:tokenCollect 0.35s ease-out forwards; pointer-events:none; }
+  @keyframes tokenCollect {
+    0%   { transform:scale(1); opacity:1; }
+    60%  { transform:scale(2.2); opacity:0.7; }
+    100% { transform:scale(0); opacity:0; }
+  }
+
+  /* ── ACTIVE POWERUP HUD ── */
+  #powerup-hud {
+    position:fixed; bottom:70px; right:16px; z-index:160;
+    display:none; flex-direction:column; align-items:center; gap:3px;
+    pointer-events:none;
+  }
+  #powerup-hud.show { display:flex; }
+  #powerup-icon { font-size:28px; filter:drop-shadow(0 0 8px gold); }
+  #powerup-timer-bar { width:44px; height:6px; background:rgba(0,0,0,0.5);
+    border:1px solid rgba(255,220,50,0.6); border-radius:4px; overflow:hidden; }
+  #powerup-timer-fill { height:100%; background:linear-gradient(90deg,#ffd54f,#ff9800);
+    border-radius:4px; transition:width 0.1s linear; }
+  #powerup-label { font-family:'Rye',serif; font-size:10px; color:#ffd54f;
+    text-shadow:0 0 6px rgba(255,200,0,0.8); letter-spacing:0.5px; }
+
+  /* ── ACORN BOMBS ── */
+  .acorn-bomb {
+    position:fixed; font-size:28px; z-index:125; pointer-events:auto;
+    cursor:crosshair; user-select:none;
+    filter:drop-shadow(0 0 6px rgba(200,120,0,0.9));
+  }
+  .acorn-bomb.deflected { animation:acornDeflect 0.4s ease-out forwards; pointer-events:none; }
+  @keyframes acornDeflect { 0%{transform:scale(1.5) rotate(0deg);opacity:1} 100%{transform:scale(0) rotate(360deg);opacity:0} }
+
+  /* Slow-mo overlay tint */
+  #slowmo-overlay {
+    position:fixed; inset:0; z-index:8;
+    background:rgba(100,180,255,0.08);
+    pointer-events:none; display:none;
+  }
+  #slowmo-overlay.active { display:block; }
+
+  /* Freeze overlay */
+  #freeze-overlay {
+    position:fixed; inset:0; z-index:8;
+    background:rgba(180,230,255,0.15);
+    pointer-events:none; display:none;
+  }
+  #freeze-overlay.active { display:block;
+    animation:freezePulse 0.5s ease-in-out infinite alternate; }
+  @keyframes freezePulse { from{opacity:0.7} to{opacity:1} }
+
+  /* Shotgun blast ring */
+  .shotgun-ring {
+    position:fixed; border-radius:50%; pointer-events:none; z-index:85;
+    border:4px solid rgba(255,200,50,0.8);
+    animation:ringExpand 0.4s ease-out forwards;
+  }
+  @keyframes ringExpand {
+    0%   { transform:translate(-50%,-50%) scale(0); opacity:1; }
+    100% { transform:translate(-50%,-50%) scale(1); opacity:0; }
+  }
+
+  
+
+  
+  #challenge-banner.show { display:block; animation:bannerPop 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+  #challenge-banner .ch-label { font-family:'Rye',serif; font-size:11px; color:#cc80cc; letter-spacing:1px; margin-bottom:4px; }
+  #challenge-banner .ch-score { font-family:'Rye',serif; font-size:22px; color:#f060e0; text-shadow:0 0 12px rgba(200,80,200,0.7); }
+  #challenge-banner .ch-name  { font-size:12px; color:#cc80cc; margin-top:3px; }
+  #challenge-banner .ch-beat  { font-family:'Rye',serif; font-size:11px; color:#ff9090; margin-top:5px; }
+
+  /* ── HEALTH PACK ── */
+  #health-pack {
+    display:none;
+    flex-direction:column; align-items:center; gap:6px;
+    margin:8px 0;
+    animation:healthPackBounce 0.6s ease-in-out infinite alternate;
+    cursor:pointer;
+  }
+  #health-pack.show { display:flex; }
+  @keyframes healthPackBounce {
+    from { transform:scale(1) rotate(-3deg); filter:drop-shadow(0 0 8px #00ff88); }
+    to   { transform:scale(1.12) rotate(3deg); filter:drop-shadow(0 0 18px #00ffaa); }
+  }
+  #health-pack .hp-icon { font-size:52px; line-height:1; }
+  #health-pack .hp-label {
+    font-family:'Rye',serif; font-size:13px; color:#00ffaa;
+    text-shadow:0 0 10px rgba(0,255,160,0.8); letter-spacing:0.5px;
+    background:rgba(0,0,0,0.4); border:2px solid rgba(0,255,160,0.4);
+    border-radius:20px; padding:4px 14px;
+  }
+  #health-pack.collected {
+    animation:healthPackCollect 0.5s ease-out forwards !important;
+    pointer-events:none;
+  }
+  @keyframes healthPackCollect {
+    0%   { transform:scale(1);   opacity:1; }
+    50%  { transform:scale(1.8); opacity:0.8; }
+    100% { transform:scale(0);   opacity:0; }
+  }
+
+  /* ── MUTE BUTTON ── */
+  #mute-btn {
+    position:fixed; top:12px; right:16px; z-index:160;
+    font-size:20px; background:rgba(0,0,0,0.5);
+    border:2px solid rgba(200,240,96,0.3); border-radius:50%;
+    width:38px; height:38px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    transition:all 0.15s; color:#c8f060;
+  }
+  #mute-btn:hover { background:rgba(0,0,0,0.75); border-color:rgba(200,240,96,0.7); }
+
+  /* ── COMBO ── */
+  #combo-display {
+    position:fixed; top:50%; left:50%;
+    transform:translate(-50%,-50%) scale(0);
+    z-index:170; pointer-events:none;
+    font-family:'Rye',serif; font-size:clamp(36px,7vw,72px);
+    text-align:center; line-height:1.1;
+    transition:transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
+    text-shadow:0 0 30px currentColor, 3px 3px 0 rgba(0,0,0,0.5);
+  }
+  #combo-display.show { transform:translate(-50%,-50%) scale(1); }
+  #combo-display.hide { transform:translate(-50%,-50%) scale(0); transition:transform 0.15s ease-in; }
+
+  /* ── ACHIEVEMENT TOAST ── */
+  #ach-toast {
+    position:fixed; bottom:80px; left:50%; transform:translateX(-50%) translateY(80px);
+    z-index:170; pointer-events:none;
+    background:linear-gradient(135deg,rgba(20,10,0,0.95),rgba(40,20,0,0.95));
+    border:2px solid #f5a720; border-radius:16px;
+    padding:10px 20px; display:flex; align-items:center; gap:10px;
+    box-shadow:0 0 30px rgba(245,167,32,0.4);
+    opacity:0; transition:all 0.4s cubic-bezier(0.34,1.56,0.64,1);
+    white-space:nowrap;
+  }
+  #ach-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  #ach-toast .ach-icon { font-size:28px; }
+  #ach-toast .ach-info { display:flex; flex-direction:column; }
+  #ach-toast .ach-title { font-family:'Rye',serif; font-size:11px; color:#f5a720; letter-spacing:1px; }
+  #ach-toast .ach-name  { font-family:'Rye',serif; font-size:16px; color:#fff8e0; }
+
+  /* ── ACHIEVEMENT BADGE STRIP on start screen ── */
+  #badge-strip {
+    display:flex; flex-wrap:wrap; gap:6px; justify-content:center;
+    margin-top:12px; max-width:340px;
+  }
+  .badge {
+    font-size:22px; opacity:0.2; transition:all 0.3s;
+    filter:grayscale(1); cursor:default;
+    position:relative;
+  }
+  .badge.unlocked { opacity:1; filter:none; animation:badgePop 0.4s cubic-bezier(0.34,1.56,0.64,1); }
+  .badge.unlocked::after {
+    content:attr(data-tip);
+    position:absolute; bottom:110%; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.85); color:#f5c87a;
+    font-family:'Cabin Sketch',cursive; font-size:10px;
+    padding:3px 8px; border-radius:6px; white-space:nowrap;
+    opacity:0; pointer-events:none; transition:opacity 0.2s;
+  }
+  .badge.unlocked:hover::after { opacity:1; }
+  @keyframes badgePop { 0%{transform:scale(0.3)} 60%{transform:scale(1.3)} 100%{transform:scale(1)} }
+
+  /* ── SCORE MULTIPLIER in HUD ── */
+  #combo-mult {
+    font-family:'Rye',serif; font-size:14px; color:#ffd54f;
+    text-shadow:0 0 8px rgba(255,213,79,0.8);
+    opacity:0; transition:opacity 0.3s;
+    min-width:40px; text-align:center;
+  }
+  #combo-mult.active { opacity:1; }
+
+  /* ── PERSONAL BEST ── */
+  #personal-best {
+    font-family:'Rye',serif; font-size:13px;
+    color:#ffd54f; background:rgba(0,0,0,0.35);
+    border:1.5px solid rgba(255,213,79,0.35);
+    border-radius:30px; padding:5px 16px;
+    margin-bottom:10px; display:none;
+    text-shadow:0 0 8px rgba(255,213,79,0.5);
+  }
+  #personal-best.show { display:block; }
+
+  /* ── MISS INDICATOR ── */
+  .miss-puff {
+    position:fixed; pointer-events:none; z-index:202;
+    font-family:'Rye',serif; font-size:16px; color:rgba(255,200,100,0.85);
+    text-shadow:1px 1px 0 rgba(0,0,0,0.5);
+    animation:missFade 0.7s ease-out forwards;
+    white-space:nowrap;
+  }
+  @keyframes missFade {
+    0%   { opacity:1; transform:translate(-50%,-50%) scale(1.1); }
+    100% { opacity:0; transform:translate(-50%,-60%) scale(0.8); }
+  }
+  #crosshair  { position:fixed; width:40px; height:40px; pointer-events:none; z-index:999; transform:translate(-50%,-50%); transition:transform 0.05s; display:none; }
+  @media (hover:none) and (pointer:coarse) {
+    /* Touch device: hide crosshair, show tap ripple instead */
+    #crosshair { display:none; }
+    /* Make buttons easier to tap */
+    .btn { padding:16px 40px; font-size:22px; }
+  }
+  #crosshair.fired { transform:translate(-50%,-50%) scale(1.6); }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+<canvas id="anim-canvas"></canvas>
+<canvas id="game-canvas"></canvas>
+
+
+<!-- Boss health bar -->
+<div id="boss-bar-wrap">
+  <div id="boss-bar-label">👑 BOSS SQUIRREL 👑</div>
+  <div id="boss-bar-track"><div id="boss-bar-fill"></div></div>
+</div>
+
+<!-- Active powerup HUD -->
+<div id="powerup-hud">
+  <div id="powerup-icon">⚡</div>
+  <div id="powerup-timer-bar"><div id="powerup-timer-fill" style="width:100%"></div></div>
+  <div id="powerup-label">ACTIVE</div>
+</div>
+
+<!-- Slow-mo + freeze overlays -->
+<div id="slowmo-overlay"></div>
+<div id="freeze-overlay"></div>
+<div id="damage-overlay"></div>
+<button id="mute-btn" onclick="toggleMute()" title="Toggle Music">🎵</button>
+<div id="combo-display"></div>
+<div id="ach-toast">
+  <div class="ach-icon" id="ach-icon">🏅</div>
+  <div class="ach-info">
+    <div class="ach-title">ACHIEVEMENT UNLOCKED</div>
+    <div class="ach-name" id="ach-name">-</div>
+  </div>
+</div>
+
+
+<!-- Dramatic bite overlay -->
+<div id="bite-overlay">
+  <canvas id="bite-canvas"></canvas>
+  <div id="bite-text">🩸 IT BIT YOU! 🩸</div>
+</div>
+
+<div id="hud">
+  <div class="hud-box">LVL <span id="hud-level">1</span>/10</div>
+  <div id="level-progress"></div>
+  <span id="combo-mult">x1</span>
+  <div class="hud-box">⭐ <span id="hud-score">0</span></div>
+  <div id="health-bar-wrap">
+    <div style="color:#f5c87a;font-family:'Rye',serif;font-size:18px;">❤️</div>
+    <div id="health-bar"><div id="health-fill" style="width:100%"></div></div>
+  </div>
+  <div class="hud-box">🐿 <span id="hud-remaining">0</span></div>
+</div>
+
+<div id="level-banner"></div>
+
+<!-- Hawk nuke button (level 3 only, one-time use) -->
+<button id="hawk-btn" onclick="callTheHawks()">🦅 CALL THE HAWKS! 🦅</button>
+<button id="bonus-hawk-btn" onclick="callBonusHawks()" style="display:none;bottom:70px">🦅🦅 BONUS HAWKS! 🦅🦅</button>
+<div id="streak-counter" id="streak-counter">🔥 Streak: 0/10</div>
+<div id="hawk-banner">🦅 HAWKS INCOMING! 🦅</div>
+
+
+<!-- Screens -->
+<div class="screen" id="start-screen">
+  <div class="big-emoji">🩸</div>
+  <h1>PEERLESS<br>SQUIRREL<br>SHOOTER</h1>
+  <div class="subtitle">Ravenous squirrels are charging across your backyard — straight at your FACE!<br>Shoot them before they reach the bottom of the screen!</div>
+  <div id="personal-best"></div>
+  <div style="font-family:'Rye',serif;font-size:14px;color:#c8f060;background:rgba(0,0,0,0.35);border:2px solid rgba(200,240,96,0.35);border-radius:30px;padding:6px 18px;margin-bottom:6px;">🎯 Aim at a squirrel and click or tap to shoot</div>
+  <div style="font-family:'Rye',serif;font-size:12px;color:#80d8ff;background:rgba(0,0,0,0.3);border:1.5px solid rgba(128,216,255,0.3);border-radius:30px;padding:5px 16px;margin-bottom:6px;">❄️ Snowflake = Freezes &nbsp;|&nbsp; 🐌 Snail = Slows &nbsp;|&nbsp; 💥 Blast = Kills all — Click to activate!</div>
+  <div style="font-family:'Rye',serif;font-size:13px;color:#ffb300;background:rgba(0,0,0,0.35);border:2px solid rgba(255,179,0,0.4);border-radius:30px;padding:6px 18px;margin-bottom:14px;">🦅 10 Accurate Kills in a Row = Hawk Button Unlocked 🦅</div>
+  <div id="badge-strip" id="badge-strip"></div>
+  <button class="btn" id="play-btn" onclick="startGame()" style="margin-top:14px">🔫 Start Shooting!</button>
+</div>
+<div class="screen hidden" id="level-clear-screen">
+  <div class="big-emoji" id="clear-emoji">🎉</div>
+  <h1 id="clear-title">Level Clear!</h1>
+  <div class="subtitle" id="clear-sub"></div>
+  <div class="score-big" id="clear-score"></div>
+  <button class="btn" onclick="nextLevel()">Next Level ➡️</button>
+</div>
+<div class="screen hidden" id="gameover-screen">
+  <div class="big-emoji">💀</div>
+  <h1 style="color:#ff5555">GAME OVER</h1>
+  <div class="subtitle">Nibbled to oblivion.</div>
+  <div class="score-big" id="gameover-score"></div>
+  <div class="stats-card" id="gameover-stats"></div>
+  <button class="share-btn copy-btn" onclick="shareScoreText()" style="margin-bottom:8px;font-size:14px;">📋 Share Your Score</button>
+  <button class="btn" onclick="restartGame()">🔄 Try Again</button>
+</div>
+<div class="screen hidden" id="win-screen">
+  <div class="big-emoji">🏆</div>
+  <h1>YOU WIN!</h1>
+  <div class="subtitle">Your backyard is safe... for now.</div>
+  <div class="score-big" id="win-score"></div>
+  <div class="stats-card" id="win-stats"></div>
+  <button class="btn" onclick="restartGame()">🔄 Play Again</button>
+</div>
+
+<svg id="crosshair" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="20" cy="20" r="14" fill="none" stroke="#ff4" stroke-width="2" opacity="0.9"/>
+  <circle cx="20" cy="20" r="3" fill="#f00"/>
+  <line x1="20" y1="2"  x2="20" y2="12" stroke="#ff4" stroke-width="2"/>
+  <line x1="20" y1="28" x2="20" y2="38" stroke="#ff4" stroke-width="2"/>
+  <line x1="2"  y1="20" x2="12" y2="20" stroke="#ff4" stroke-width="2"/>
+  <line x1="28" y1="20" x2="38" y2="20" stroke="#ff4" stroke-width="2"/>
+</svg>
+
+<script>
+// ═══════════════════════════════════════════════
+//  AUDIO ENGINE
+// ═══════════════════════════════════════════════
+let audioCtx = null;
+function getAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+function playPop() {
+  try {
+    const ctx=getAudio(), t=ctx.currentTime;
+    const len=Math.floor(ctx.sampleRate*0.22);
+    const buf=ctx.createBuffer(1,len,ctx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,1.8);
+    const src=ctx.createBufferSource(); src.buffer=buf;
+    src.playbackRate.setValueAtTime(4.5,t); src.playbackRate.exponentialRampToValueAtTime(0.35,t+0.18);
+    const bp=ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1800; bp.Q.value=1.2;
+    const g1=ctx.createGain(); g1.gain.setValueAtTime(0.7,t); g1.gain.exponentialRampToValueAtTime(0.001,t+0.22);
+    src.connect(bp);bp.connect(g1);g1.connect(ctx.destination);src.start(t);src.stop(t+0.24);
+    const osc=ctx.createOscillator(); osc.type='sine';
+    osc.frequency.setValueAtTime(300,t); osc.frequency.exponentialRampToValueAtTime(30,t+0.14);
+    const g2=ctx.createGain(); g2.gain.setValueAtTime(0.6,t); g2.gain.exponentialRampToValueAtTime(0.001,t+0.15);
+    osc.connect(g2);g2.connect(ctx.destination);osc.start(t);osc.stop(t+0.16);
+  } catch(e){}
+}
+function playBite() {
+  try {
+    const ctx=getAudio(), t=ctx.currentTime;
+    // Hard CRUNCH
+    for(let pass=0;pass<3;pass++){
+      const delay=pass*0.06;
+      const len=Math.floor(ctx.sampleRate*(0.18-pass*0.03));
+      const buf=ctx.createBuffer(1,len,ctx.sampleRate);
+      const d=buf.getChannelData(0);
+      for(let i=0;i<len;i++){
+        const env=Math.pow(1-i/len, 1.0+pass*0.3);
+        d[i]=(Math.random()*2-1)*env*(Math.sin(i*(0.5+pass*0.3))>0?1:-0.8);
+      }
+      const src=ctx.createBufferSource(); src.buffer=buf;
+      const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1200-pass*200;
+      const g=ctx.createGain(); g.gain.setValueAtTime(1.1-pass*0.2,t+delay); g.gain.exponentialRampToValueAtTime(0.001,t+delay+0.2);
+      src.connect(lp);lp.connect(g);g.connect(ctx.destination);
+      src.start(t+delay); src.stop(t+delay+0.22);
+    }
+    // Terrifying low growl
+    const osc=ctx.createOscillator(); osc.type='sawtooth';
+    osc.frequency.setValueAtTime(80,t); osc.frequency.exponentialRampToValueAtTime(35,t+0.4);
+    const og=ctx.createGain(); og.gain.setValueAtTime(0.35,t); og.gain.exponentialRampToValueAtTime(0.001,t+0.45);
+    osc.connect(og);og.connect(ctx.destination);osc.start(t);osc.stop(t+0.48);
+  } catch(e){}
+}
+function playGunshot() {
+  try {
+    const ctx=getAudio(), t=ctx.currentTime;
+    const len=Math.floor(ctx.sampleRate*0.09);
+    const buf=ctx.createBuffer(1,len,ctx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,0.22);
+    const src=ctx.createBufferSource(); src.buffer=buf;
+    const hp=ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=120;
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.35,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.09);
+    src.connect(hp);hp.connect(g);g.connect(ctx.destination);src.start(t);src.stop(t+0.11);
+  } catch(e){}
+}
+
+// ═══════════════════════════════════════════════
+//  BACKGROUND + ANIMATION SYSTEM
+// ═══════════════════════════════════════════════
+const bgCanvas=document.getElementById('bg-canvas');
+const bgCtx=bgCanvas.getContext('2d');
+const animCanvas=document.getElementById('anim-canvas');
+const animCtx=animCanvas.getContext('2d');
+
+// Per-level theme definitions
+const LEVEL_THEMES = [
+  // 1: Bright sunny morning
+  { sky:['#87ceeb','#b8e0f7','#d4edf7'], sunCol:'#ffe050', sunGlow:'rgba(255,220,80,', grassTint:0, fenceCol:'#C4956A', overlay:null,     name:'Sunny Morning' },
+  // 2: Warm afternoon, slightly hazy
+  { sky:['#f9c784','#f5a623','#fde8b0'], sunCol:'#ff9800', sunGlow:'rgba(255,152,0,',  grassTint:0, fenceCol:'#b8845a', overlay:'rgba(255,140,0,0.06)', name:'Hazy Afternoon' },
+  // 3: Windy — dark clouds rolling in
+  { sky:['#6a8fa8','#8faabc','#b0c8d8'], sunCol:'#c8c8a0', sunGlow:'rgba(200,200,160,',grassTint:1, fenceCol:'#9a7455', overlay:'rgba(80,100,120,0.12)', name:'Windy & Overcast' },
+  // 4: Summer thunderstorm / rain
+  { sky:['#3a4a5a','#4a5a6a','#5a6a7a'], sunCol:'#606070', sunGlow:'rgba(90,90,110,',  grassTint:2, fenceCol:'#7a6040', overlay:'rgba(40,50,70,0.22)', name:'Thunderstorm' },
+  // 5: Golden hour / late afternoon
+  { sky:['#ff7043','#ff9800','#ffcc80'], sunCol:'#ff5722', sunGlow:'rgba(255,87,34,',   grassTint:0, fenceCol:'#c47840', overlay:'rgba(255,100,0,0.09)', name:'Golden Hour' },
+  // 6: Dusk / twilight
+  { sky:['#1a1a4a','#4a3060','#7a4080'], sunCol:'#e040fb', sunGlow:'rgba(180,60,200,',  grassTint:3, fenceCol:'#6a5040', overlay:'rgba(40,0,80,0.25)', name:'Twilight' },
+  // 7: Night with fireflies
+  { sky:['#050510','#0a0a20','#101030'], sunCol:'#e8e0c0', sunGlow:'rgba(220,210,170,',  grassTint:4, fenceCol:'#3a3030', overlay:'rgba(0,0,20,0.5)', name:'Night' },
+  // 8: Autumn — fall leaves
+  { sky:['#c0855a','#d4a070','#e8c090'], sunCol:'#ff7722', sunGlow:'rgba(255,120,30,',   grassTint:5, fenceCol:'#a06030', overlay:'rgba(180,80,0,0.08)', name:'Autumn' },
+  // 9: Winter — snow flurries
+  { sky:['#c8dce8','#ddeaf2','#eef4f8'], sunCol:'#ffffff', sunGlow:'rgba(220,230,240,',  grassTint:6, fenceCol:'#b0c0c8', overlay:'rgba(200,220,240,0.18)', name:'Winter Snow' },
+  // 10: Apocalyptic red sky — final level
+  { sky:['#3a0000','#600010','#900020'], sunCol:'#ff2200', sunGlow:'rgba(255,30,0,',      grassTint:7, fenceCol:'#5a2010', overlay:'rgba(120,0,0,0.3)', name:'FINAL SHOWDOWN' },
+];
+
+const GRASS_TINTS = [
+  // 0=normal, 1=grey-green, 2=dark wet, 3=purple dusk, 4=near-black night, 5=orange-brown autumn, 6=white snow, 7=blood red
+  [['#2d6e1a','#3a8a22'],['#3a8a22','#4aaa2e'],['#4aaa2e','#5ac83a'],['#3d9020','#4aaa28']],
+  [['#3a5a30','#4a6a3a'],['#4a6a3a','#5a7a48'],['#5a7a48','#6a8a55'],['#3a5a30','#4a6a3a']],
+  [['#1e4a14','#2a5a1e'],['#2a5a1e','#3a6a2a'],['#3a6a2a','#4a7a35'],['#1e4a14','#2a5a1e']],
+  [['#2a1a40','#382250'],['#382250','#462a60'],['#462a60','#543270'],['#2a1a40','#382250']],
+  [['#050e05','#0a1a08'],['#0a1a08','#101e0e'],['#101e0e','#162514'],['#050e05','#0a1a08']],
+  [['#6a3a10','#8a4a15'],['#8a4a15','#aa5a20'],['#aa5a20','#c06a28'],['#6a3a10','#8a4a15']],
+  [['#d0dce0','#e0eaf0'],['#e0eaf0','#eef4f8'],['#eef4f8','#f5f8fa'],['#d0dce0','#e0eaf0']],
+  [['#3a0808','#500a0a'],['#500a0a','#680c0c'],['#680c0c','#800e0e'],['#3a0808','#500a0a']],
+];
+
+// ── Animation particles ──
+let animParticles = [];
+function initParticles(lvl) {
+  animParticles = [];
+  const W=window.innerWidth, H=window.innerHeight;
+  const th = LEVEL_THEMES[lvl];
+
+  if (lvl === 2) {
+    // Windy: dark clouds drifting fast + leaves
+    for(let i=0;i<8;i++) animParticles.push({type:'cloud',x:Math.random()*W,y:H*0.05+Math.random()*H*0.25,w:80+Math.random()*120,h:35+Math.random()*25,speed:0.6+Math.random()*0.8,alpha:0.55+Math.random()*0.3});
+    for(let i=0;i<20;i++) animParticles.push({type:'windleaf',x:Math.random()*W,y:Math.random()*H*0.9,vx:2+Math.random()*4,vy:-0.5+Math.random()*1,rot:Math.random()*Math.PI*2,rotV:0.08+Math.random()*0.15,col:['#c8a060','#d4804a','#c06030'][Math.floor(Math.random()*3)]});
+  }
+  if (lvl === 3) {
+    // Rain
+    for(let i=0;i<160;i++) animParticles.push({type:'rain',x:Math.random()*W,y:Math.random()*H,vx:-1.5,vy:14+Math.random()*8,len:12+Math.random()*10,alpha:0.35+Math.random()*0.3});
+    // Lightning flash state
+    animParticles.push({type:'lightning',timer:0,interval:180+Math.floor(Math.random()*240)});
+  }
+  if (lvl === 4) {
+    // Golden hour: drifting warm dust motes + slow clouds
+    for(let i=0;i<6;i++) animParticles.push({type:'cloud',x:Math.random()*W,y:H*0.05+Math.random()*H*0.18,w:100+Math.random()*140,h:40+Math.random()*30,speed:0.2+Math.random()*0.3,alpha:0.35,tint:'rgba(255,160,60,'});
+    for(let i=0;i<25;i++) animParticles.push({type:'mote',x:Math.random()*W,y:Math.random()*H*0.8,vx:-0.2+Math.random()*0.4,vy:-0.3-Math.random()*0.4,r:1+Math.random()*2.5,alpha:0.4+Math.random()*0.5,col:'rgba(255,200,80,'});
+  }
+  if (lvl === 5) {
+    // Dusk: bats + purple clouds
+    for(let i=0;i<5;i++) animParticles.push({type:'bat',x:Math.random()*W,y:H*0.05+Math.random()*H*0.3,vx:(-1+Math.random()*2)*1.5,vy:(-0.5+Math.random())*0.8,wingPhase:Math.random()*Math.PI*2});
+    for(let i=0;i<6;i++) animParticles.push({type:'cloud',x:Math.random()*W,y:H*0.04+Math.random()*H*0.2,w:90+Math.random()*130,h:38+Math.random()*28,speed:0.15+Math.random()*0.25,alpha:0.4,tint:'rgba(100,50,140,'});
+  }
+  if (lvl === 6) {
+    // Night: fireflies + stars twinkling
+    for(let i=0;i<40;i++) animParticles.push({type:'firefly',x:Math.random()*W,y:H*0.35+Math.random()*H*0.5,vx:(-0.5+Math.random())*0.7,vy:(-0.3+Math.random()*0.6),phase:Math.random()*Math.PI*2,phaseSpeed:0.03+Math.random()*0.04});
+    for(let i=0;i<60;i++) animParticles.push({type:'star',x:Math.random()*W,y:Math.random()*H*0.45,phase:Math.random()*Math.PI*2,phaseSpeed:0.02+Math.random()*0.03,r:0.5+Math.random()*2});
+  }
+  if (lvl === 7) {
+    // Autumn: falling leaves
+    for(let i=0;i<55;i++) animParticles.push({type:'leaf',x:Math.random()*W,y:-20+Math.random()*H,vx:-0.8+Math.random()*1.6,vy:0.8+Math.random()*1.4,rot:Math.random()*Math.PI*2,rotV:-0.06+Math.random()*0.12,size:8+Math.random()*14,col:['#e06420','#cc4a10','#d48030','#b83010','#e8a030','#c05820'][Math.floor(Math.random()*6)]});
+    for(let i=0;i<5;i++) animParticles.push({type:'cloud',x:Math.random()*W,y:H*0.04+Math.random()*H*0.2,w:110+Math.random()*120,h:40+Math.random()*30,speed:0.18+Math.random()*0.22,alpha:0.4,tint:'rgba(180,100,40,'});
+  }
+  if (lvl === 8) {
+    // Winter snow
+    for(let i=0;i<120;i++) animParticles.push({type:'snow',x:Math.random()*W,y:Math.random()*H,vx:-0.4+Math.random()*0.8,vy:0.6+Math.random()*1.4,r:2+Math.random()*4,wobble:Math.random()*Math.PI*2,wobbleSpeed:0.02+Math.random()*0.03});
+    for(let i=0;i<5;i++) animParticles.push({type:'cloud',x:Math.random()*W,y:H*0.04+Math.random()*H*0.2,w:110+Math.random()*130,h:40+Math.random()*28,speed:0.1+Math.random()*0.15,alpha:0.5,tint:'rgba(200,215,230,'});
+  }
+  if (lvl === 9) {
+    // Apocalypse: embers + smoke + blood moon
+    for(let i=0;i<50;i++) animParticles.push({type:'ember',x:Math.random()*W,y:H+Math.random()*50,vx:-1+Math.random()*2,vy:-(1+Math.random()*3),r:1.5+Math.random()*3.5,life:1,decay:0.004+Math.random()*0.006,col:['#ff4400','#ff7700','#ffaa00'][Math.floor(Math.random()*3)]});
+    for(let i=0;i<12;i++) animParticles.push({type:'smoke',x:W*0.1+Math.random()*W*0.8,y:H*0.6+Math.random()*H*0.3,vx:-0.3+Math.random()*0.6,vy:-(0.5+Math.random()*0.8),r:20+Math.random()*30,life:1,decay:0.003+Math.random()*0.004});
+  }
+  // All levels: drifting clouds (base)
+  if (lvl===0||lvl===1) {
+    for(let i=0;i<5;i++) animParticles.push({type:'cloud',x:Math.random()*W,y:H*0.04+Math.random()*H*0.2,w:80+Math.random()*140,h:35+Math.random()*30,speed:0.18+Math.random()*0.25,alpha:0.85,tint:'rgba(255,255,255,'});
+  }
+  // Butterflies on levels 0,4
+  if (lvl===0||lvl===4) {
+    for(let i=0;i<6;i++) animParticles.push({type:'butterfly',x:Math.random()*W,y:H*0.3+Math.random()*H*0.35,vx:0.3+Math.random()*0.7,vy:0,wingPhase:Math.random()*Math.PI*2,col:['#ff88cc','#ffcc44','#88aaff','#44ddaa'][Math.floor(Math.random()*4)]});
+  }
+  // Sprinkler on level 1
+  if (lvl===1) {
+    animParticles.push({type:'sprinkler',x:W*0.35,angle:0,angleV:0.04,drops:[]});
+  }
+  // BBQ smoke on level 4 (golden hour cookout)
+  if (lvl===4) {
+    animParticles.push({type:'bbq',x:W*0.6,y:H*0.87,puffs:[]});
+  }
+  // Birds flying by on levels 0,1,4,7
+  if ([0,1,4,7].includes(lvl)) {
+    for(let i=0;i<3;i++) animParticles.push({type:'bird',x:-50-Math.random()*200,y:H*0.08+Math.random()*H*0.18,speed:1.2+Math.random()*1.2,wingPhase:Math.random()*Math.PI*2});
+  }
+}
+
+function drawCloud(ctx,x,y,w,h,alpha,tint='rgba(255,255,255,'){
+  ctx.save(); ctx.globalAlpha=alpha;
+  const bumps=Math.max(3,Math.floor(w/40));
+  ctx.fillStyle=tint+'1)';
+  for(let i=0;i<bumps;i++){
+    const bx=x+i*(w/bumps), by=y+Math.sin(i*1.3)*h*0.2;
+    ctx.beginPath(); ctx.arc(bx,by,h*0.5+Math.sin(i*2)*h*0.15,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawBird(ctx,x,y,wingPhase){
+  ctx.save(); ctx.strokeStyle='rgba(30,20,10,0.7)'; ctx.lineWidth=1.5; ctx.lineCap='round';
+  const flap=Math.sin(wingPhase)*8;
+  ctx.beginPath(); ctx.moveTo(x,y); ctx.quadraticCurveTo(x-12,y+flap,x-22,y+flap*0.5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x,y); ctx.quadraticCurveTo(x+12,y+flap,x+22,y+flap*0.5); ctx.stroke();
+  ctx.restore();
+}
+
+function drawBat(ctx,x,y,wingPhase){
+  ctx.save(); ctx.fillStyle='rgba(20,10,30,0.8)';
+  const flap=Math.sin(wingPhase)*14;
+  ctx.beginPath();
+  ctx.moveTo(x,y);
+  ctx.quadraticCurveTo(x-15,y+flap,x-28,y+flap*0.3);
+  ctx.quadraticCurveTo(x-20,y+flap+8,x-10,y+4);
+  ctx.lineTo(x,y+5); ctx.lineTo(x+10,y+4);
+  ctx.quadraticCurveTo(x+20,y+flap+8,x+28,y+flap*0.3);
+  ctx.quadraticCurveTo(x+15,y+flap,x,y);
+  ctx.fill();
+  ctx.fillStyle='rgba(40,20,60,0.9)';
+  ctx.beginPath(); ctx.ellipse(x,y+2,5,4,0,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawButterfly(ctx,x,y,wingPhase,col){
+  ctx.save(); ctx.globalAlpha=0.75;
+  const flap=Math.abs(Math.sin(wingPhase));
+  ctx.fillStyle=col;
+  ctx.beginPath(); ctx.ellipse(x-8*flap,y-3,9*flap,7,0.3,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x-6*flap,y+4,7*flap,5,-0.3,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x+8*flap,y-3,9*flap,7,-0.3,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x+6*flap,y+4,7*flap,5,0.3,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,0.5)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(x,y-8); ctx.lineTo(x,y+8); ctx.stroke();
+  ctx.restore();
+}
+
+function tickAnimParticles(dt) {
+  const W=animCanvas.width, H=animCanvas.height;
+  const ctx=animCtx;
+  ctx.clearRect(0,0,W,H);
+
+  for(let i=animParticles.length-1;i>=0;i--){
+    const p=animParticles[i];
+    switch(p.type){
+
+      case 'cloud':
+        p.x+=p.speed;
+        if(p.x>W+200) p.x=-200;
+        drawCloud(ctx,p.x,p.y,p.w,p.h,p.alpha,p.tint||'rgba(255,255,255,');
+        break;
+
+      case 'rain':
+        p.x+=p.vx; p.y+=p.vy;
+        if(p.y>H){p.y=-10;p.x=Math.random()*W;}
+        ctx.save(); ctx.strokeStyle=`rgba(160,190,220,${p.alpha})`; ctx.lineWidth=1;
+        ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x+p.vx*0.5,p.y-p.len); ctx.stroke();
+        ctx.restore();
+        break;
+
+      case 'lightning':
+        p.timer++;
+        if(p.timer>=p.interval){
+          p.timer=0; p.interval=180+Math.floor(Math.random()*300);
+          // Flash
+          ctx.save(); ctx.fillStyle='rgba(200,220,255,0.35)'; ctx.fillRect(0,0,W,H); ctx.restore();
+          // Bolt
+          ctx.save(); ctx.strokeStyle='rgba(220,230,255,0.9)'; ctx.lineWidth=2; ctx.shadowColor='#aabbff'; ctx.shadowBlur=12;
+          let bx=W*0.3+Math.random()*W*0.4, by=0;
+          ctx.beginPath(); ctx.moveTo(bx,by);
+          for(let s=0;s<8;s++){ bx+=(-20+Math.random()*40); by+=H*0.08+Math.random()*H*0.05; ctx.lineTo(bx,by); }
+          ctx.stroke(); ctx.restore();
+        }
+        break;
+
+      case 'windleaf':
+        p.x+=p.vx; p.y+=p.vy*0.3+Math.sin(p.rot)*0.4; p.rot+=p.rotV;
+        if(p.x>W+20) p.x=-20;
+        ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot); ctx.globalAlpha=0.7;
+        ctx.fillStyle=p.col; ctx.beginPath(); ctx.ellipse(0,0,7,4,0,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+        break;
+
+      case 'mote':
+        p.x+=p.vx; p.y+=p.vy;
+        if(p.y<0){p.y=H*0.8;p.x=Math.random()*W;}
+        ctx.save(); ctx.globalAlpha=p.alpha*0.6;
+        ctx.fillStyle=p.col+'0.8)'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+        break;
+
+      case 'firefly':
+        p.phase+=p.phaseSpeed; p.x+=p.vx; p.y+=p.vy;
+        if(p.x<0)p.x=W; if(p.x>W)p.x=0; if(p.y<H*0.3)p.y=H*0.9; if(p.y>H)p.y=H*0.35;
+        const ffAlpha=Math.max(0,Math.sin(p.phase));
+        if(ffAlpha>0.1){
+          ctx.save(); ctx.globalAlpha=ffAlpha*0.9;
+          const ffg=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,8);
+          ffg.addColorStop(0,'rgba(220,255,100,1)'); ffg.addColorStop(1,'rgba(150,230,50,0)');
+          ctx.fillStyle=ffg; ctx.beginPath(); ctx.arc(p.x,p.y,8,0,Math.PI*2); ctx.fill();
+          ctx.restore();
+        }
+        break;
+
+      case 'star':
+        p.phase+=p.phaseSpeed;
+        const sAlpha=0.4+Math.sin(p.phase)*0.4;
+        ctx.save(); ctx.globalAlpha=sAlpha; ctx.fillStyle='#ffffff';
+        ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+        break;
+
+      case 'leaf':
+        p.x+=p.vx+Math.sin(p.rot*0.5)*0.5; p.y+=p.vy; p.rot+=p.rotV;
+        if(p.y>H+20){p.y=-20;p.x=Math.random()*W;}
+        ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.rot); ctx.globalAlpha=0.82;
+        ctx.fillStyle=p.col;
+        ctx.beginPath(); ctx.moveTo(0,-p.size*0.5);
+        ctx.bezierCurveTo(p.size*0.5,-p.size*0.1,p.size*0.4,p.size*0.5,0,p.size*0.5);
+        ctx.bezierCurveTo(-p.size*0.4,p.size*0.5,-p.size*0.5,-p.size*0.1,0,-p.size*0.5);
+        ctx.fill(); ctx.restore();
+        break;
+
+      case 'snow':
+        p.wobble+=p.wobbleSpeed; p.x+=p.vx+Math.sin(p.wobble)*0.5; p.y+=p.vy;
+        if(p.y>H+10){p.y=-10;p.x=Math.random()*W;}
+        ctx.save(); ctx.globalAlpha=0.8; ctx.fillStyle='rgba(230,240,255,0.9)';
+        ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+        break;
+
+      case 'ember':
+        p.x+=p.vx; p.y+=p.vy; p.vy*=0.99; p.vx*=0.995; p.life-=p.decay;
+        if(p.life<=0){
+          // respawn
+          p.x=Math.random()*W; p.y=H+10; p.vy=-(1+Math.random()*3); p.vx=-1+Math.random()*2; p.life=1;
+        }
+        ctx.save(); ctx.globalAlpha=p.life*0.85;
+        ctx.fillStyle=p.col; ctx.beginPath(); ctx.arc(p.x,p.y,p.r*p.life,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+        break;
+
+      case 'smoke':
+        p.x+=p.vx; p.y+=p.vy; p.r+=0.3; p.life-=p.decay;
+        if(p.life<=0){
+          p.x=W*0.1+Math.random()*W*0.8; p.y=H*0.6+Math.random()*H*0.3;
+          p.r=20+Math.random()*20; p.life=0.8+Math.random()*0.2;
+          p.vx=-0.3+Math.random()*0.6; p.vy=-(0.5+Math.random()*0.8);
+        }
+        ctx.save(); ctx.globalAlpha=p.life*0.12;
+        ctx.fillStyle='#880000'; ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+        break;
+
+      case 'bat':
+        p.wingPhase+=0.12; p.x+=p.vx; p.y+=p.vy+Math.sin(p.wingPhase*0.3)*0.4;
+        if(p.x<-50)p.x=W+50; if(p.x>W+50)p.x=-50;
+        if(p.y<H*0.02)p.vy=Math.abs(p.vy); if(p.y>H*0.35)p.vy=-Math.abs(p.vy);
+        drawBat(ctx,p.x,p.y,p.wingPhase);
+        break;
+
+      case 'butterfly':
+        p.wingPhase+=0.1; p.x+=p.vx+Math.sin(p.wingPhase*0.3)*0.4;
+        p.y+=Math.sin(p.wingPhase*0.5)*0.6;
+        if(p.x>W+20){p.x=-20;p.y=H*0.3+Math.random()*H*0.35;}
+        drawButterfly(ctx,p.x,p.y,p.wingPhase,p.col);
+        break;
+
+      case 'bird':
+        p.wingPhase+=0.14; p.x+=p.speed;
+        if(p.x>W+50){p.x=-50;p.y=H*0.06+Math.random()*H*0.2;}
+        drawBird(ctx,p.x,p.y,p.wingPhase);
+        break;
+
+      case 'sprinkler': {
+        p.angle+=p.angleV;
+        if(p.angle>Math.PI*0.7){p.angleV=-0.04;} if(p.angle<Math.PI*0.0){p.angleV=0.04;}
+        // Emit new drops
+        if(frame%2===0){
+          for(let j=0;j<3;j++){
+            const sp=4+Math.random()*3;
+            p.drops.push({x:p.x,y:H*0.88,vx:Math.cos(p.angle)*sp,vy:-Math.sin(p.angle)*sp-2,life:1});
+          }
+        }
+        // Update + draw drops
+        ctx.save(); ctx.fillStyle='rgba(100,180,255,0.65)';
+        for(let j=p.drops.length-1;j>=0;j--){
+          const d=p.drops[j];
+          d.x+=d.vx; d.y+=d.vy; d.vy+=0.22; d.life-=0.025;
+          if(d.life<=0||d.y>H){p.drops.splice(j,1);continue;}
+          ctx.globalAlpha=d.life*0.7;
+          ctx.beginPath(); ctx.arc(d.x,d.y,2,0,Math.PI*2); ctx.fill();
+        }
+        ctx.restore();
+        // Draw sprinkler head
+        ctx.save(); ctx.fillStyle='#888'; ctx.fillRect(p.x-4,H*0.88,8,10); ctx.restore();
+        break;
+      }
+
+      case 'bbq': {
+        // Emit smoke puffs
+        if(frame%8===0){
+          p.puffs.push({x:p.x,y:p.y,r:8,vx:-0.2+Math.random()*0.4,vy:-(0.8+Math.random()*0.6),life:1});
+        }
+        for(let j=p.puffs.length-1;j>=0;j--){
+          const pf=p.puffs[j];
+          pf.x+=pf.vx; pf.y+=pf.vy; pf.r+=0.5; pf.life-=0.012;
+          if(pf.life<=0){p.puffs.splice(j,1);continue;}
+          ctx.save(); ctx.globalAlpha=pf.life*0.25; ctx.fillStyle='#666';
+          ctx.beginPath(); ctx.arc(pf.x,pf.y,pf.r,0,Math.PI*2); ctx.fill();
+          ctx.restore();
+        }
+        // Draw grill
+        ctx.save();
+        ctx.fillStyle='#444'; ctx.fillRect(p.x-22,p.y-8,44,10); // grill top
+        ctx.fillStyle='#333'; ctx.fillRect(p.x-18,p.y+2,36,16); // bowl
+        ctx.fillStyle='#555'; ctx.fillRect(p.x-3,p.y+18,6,20); // leg
+        ctx.fillStyle='rgba(255,100,0,0.5)'; // glow
+        ctx.beginPath(); ctx.arc(p.x,p.y-2,14,Math.PI,0); ctx.fill();
+        ctx.restore();
+        break;
+      }
+    }
+  }
+}
+
+function drawBackground(){
+  const W=bgCanvas.width=window.innerWidth;
+  const H=bgCanvas.height=window.innerHeight;
+  animCanvas.width=W; animCanvas.height=H;
+  const g=bgCtx;
+  const lvlIdx=Math.min((typeof level!=='undefined'?level:1)-1, LEVEL_THEMES.length-1);
+  const th=LEVEL_THEMES[lvlIdx];
+  const gt=GRASS_TINTS[th.grassTint]||GRASS_TINTS[0];
+
+  // Sky
+  const sky=g.createLinearGradient(0,0,0,H*0.52);
+  sky.addColorStop(0,th.sky[0]); sky.addColorStop(0.6,th.sky[1]); sky.addColorStop(1,th.sky[2]);
+  g.fillStyle=sky; g.fillRect(0,0,W,H*0.52);
+
+  // Theme overlay
+  if(th.overlay){ g.fillStyle=th.overlay; g.fillRect(0,0,W,H); }
+
+  // Moon for night/dusk levels
+  if(lvlIdx===6){
+    const mx=W*0.15,my=H*0.12;
+    const mg=g.createRadialGradient(mx,my,2,mx,my,28);
+    mg.addColorStop(0,'rgba(240,230,200,0.95)'); mg.addColorStop(1,'rgba(220,210,180,0)');
+    g.fillStyle=mg; g.fillRect(mx-28,my-28,56,56);
+    g.fillStyle='#e8dfc0'; g.beginPath(); g.arc(mx,my,18,0,Math.PI*2); g.fill();
+  }
+
+  // Blood moon for final level
+  if(lvlIdx===9){
+    const mx=W*0.5,my=H*0.15;
+    const mg=g.createRadialGradient(mx,my,5,mx,my,55);
+    mg.addColorStop(0,'rgba(255,40,0,0.9)'); mg.addColorStop(1,'rgba(200,0,0,0)');
+    g.fillStyle=mg; g.fillRect(mx-55,my-55,110,110);
+    g.fillStyle='#cc2200'; g.beginPath(); g.arc(mx,my,28,0,Math.PI*2); g.fill();
+  }
+
+  // Sun (hidden at night, red at apocalypse)
+  if(lvlIdx!==6){
+    const sx=lvlIdx===9?W*0.5:W*0.87, sy=lvlIdx===4?H*0.12:H*0.09;
+    const sg=g.createRadialGradient(sx,sy,8,sx,sy,65);
+    sg.addColorStop(0,th.sunGlow+'1)'); sg.addColorStop(0.4,th.sunGlow+'0.5)'); sg.addColorStop(1,th.sunGlow+'0)');
+    g.fillStyle=sg; g.fillRect(sx-65,sy-65,130,130);
+    g.fillStyle=th.sunCol; g.beginPath(); g.arc(sx,sy,22,0,Math.PI*2); g.fill();
+  }
+
+  // Back fence
+  const fY=H*0.44;
+  g.fillStyle=th.fenceCol;
+  for(let x=0;x<W;x+=28){
+    g.beginPath(); g.moveTo(x+1,fY-80); g.lineTo(x+14,fY-96); g.lineTo(x+27,fY-80);
+    g.lineTo(x+27,fY-2); g.lineTo(x+1,fY-2); g.closePath(); g.fill();
+  }
+  // Fence rails - darker shade
+  const fRail=lvlIdx===8?'#9ab0b8':lvlIdx===6?'#4a3030':'#9B7350';
+  g.fillStyle=fRail; g.fillRect(0,fY-56,W,8); g.fillRect(0,fY-26,W,8);
+  g.fillStyle='rgba(0,0,0,0.12)';
+  for(let x=0;x<W;x+=28){ g.fillRect(x+18,fY-80,8,78); }
+
+  // Snow caps on fence
+  if(lvlIdx===8){
+    g.fillStyle='rgba(240,248,255,0.9)';
+    for(let x=0;x<W;x+=28){ g.beginPath(); g.ellipse(x+14,fY-96,14,5,0,0,Math.PI*2); g.fill(); }
+  }
+
+  // Grass layers
+  function grass(y0,y1,c0,c1){ const gr=g.createLinearGradient(0,y0,0,y1); gr.addColorStop(0,c0); gr.addColorStop(1,c1); g.fillStyle=gr; g.fillRect(0,y0,W,y1-y0); }
+  grass(fY-8,fY+45,gt[0][0],gt[0][1]);
+  grass(fY+42,H*0.70,gt[1][0],gt[1][1]);
+  grass(H*0.68,H*0.86,gt[2][0],gt[2][1]);
+  grass(H*0.84,H,gt[3][0],gt[3][1]);
+
+  // Snow blanket on grass (winter)
+  if(lvlIdx===8){
+    g.fillStyle='rgba(235,245,255,0.55)';
+    g.fillRect(0,fY+30,W,H-(fY+30));
+    g.fillStyle='rgba(245,250,255,0.7)';
+    g.fillRect(0,H*0.87,W,H*0.13);
+  }
+
+  // Grass blades (skip on snow/night)
+  if(lvlIdx!==8&&lvlIdx!==6){
+    g.lineWidth=1.5;
+    const bCol=lvlIdx===9?'#3a0808':lvlIdx===7?'#6a3808':'#2a6014';
+    const bCol2=lvlIdx===9?'#2a0404':lvlIdx===7?'#5a2a04':'#2a7014';
+    function blades(baseY,n,h,col){ g.strokeStyle=col;
+      for(let i=0;i<n;i++){ const bx=(Math.sin(i*137.5)*0.5+0.5)*W, by=baseY+Math.sin(i*53)*5;
+        g.beginPath(); g.moveTo(bx,by); g.quadraticCurveTo(bx+Math.sin(i*31)*8,by-h*0.6,bx+Math.sin(i*17)*5,by-h); g.stroke(); }
+    }
+    blades(fY+30,55,20,bCol); blades(H*0.68,75,28,bCol2); blades(H*0.84,95,22,bCol);
+  }
+
+  // Bushes
+  const bushCol=lvlIdx===8?'#c8dce8':lvlIdx===6?'#080810':lvlIdx===9?'#3a0808':lvlIdx===7?'#7a4010':'#2d8a10';
+  function bush(bx,by,r,col){ for(let i=0;i<10;i++){ const a=i/10*Math.PI*2; g.beginPath(); g.arc(bx+Math.cos(a)*r*0.5,by+Math.sin(a)*r*0.3,r*0.55,0,Math.PI*2); g.fillStyle=col; g.fill(); } g.beginPath(); g.arc(bx,by,r*0.72,0,Math.PI*2); g.fillStyle=col; g.fill(); }
+  bush(W*0.06,fY+4,28,bushCol); bush(W*0.15,fY+8,22,bushCol); bush(W*0.78,fY+4,30,bushCol); bush(W*0.90,fY+6,24,bushCol); bush(W*0.45,fY+3,18,bushCol);
+
+  // Flowers (spring/summer only)
+  if(lvlIdx<=4||lvlIdx===4){
+    function flower(fx,fy,pc){ const np=5;
+      for(let p=0;p<np;p++){ const a=p/np*Math.PI*2; g.beginPath(); g.ellipse(fx+Math.cos(a)*7,fy+Math.sin(a)*7,5,3,a,0,Math.PI*2); g.fillStyle=pc; g.fill(); }
+      g.beginPath(); g.arc(fx,fy,4,0,Math.PI*2); g.fillStyle='#ffe050'; g.fill(); }
+    const flcols=['#ff6688','#ff88aa','#ffffff','#ffaacc','#ff44aa'];
+    for(let i=0;i<13;i++) flower(W*(0.03+i*0.075+Math.sin(i)*0.018),fY-4+Math.cos(i*3)*7,flcols[i%5]);
+  }
+
+  // Autumn leaves on bushes
+  if(lvlIdx===7){
+    const lcols=['#e06420','#cc4a10','#d48030','#c05820'];
+    for(let i=0;i<18;i++){
+      const fx=W*(0.03+i*0.058), fy=fY+Math.sin(i*1.7)*8;
+      g.fillStyle=lcols[i%4]; g.beginPath(); g.ellipse(fx,fy,6,4,i*0.4,0,Math.PI*2); g.fill();
+    }
+  }
+
+  // Patio deck
+  const pY=H*0.87;
+  const pg=g.createLinearGradient(0,pY,0,H);
+  const pCol1=lvlIdx===8?'#c8d8e0':lvlIdx===6?'#1a1020':lvlIdx===9?'#301010':'#c8a878';
+  const pCol2=lvlIdx===8?'#b0c8d0':lvlIdx===6?'#100c18':lvlIdx===9?'#200808':'#b09060';
+  pg.addColorStop(0,pCol1); pg.addColorStop(1,pCol2);
+  g.fillStyle=pg; g.fillRect(0,pY,W,H-pY);
+  g.strokeStyle='rgba(0,0,0,0.12)'; g.lineWidth=1.5;
+  for(let y=pY+14;y<H;y+=22){ g.beginPath();g.moveTo(0,y);g.lineTo(W,y);g.stroke(); }
+  for(let x=0;x<W;x+=58){ g.beginPath();g.moveTo(x,pY);g.lineTo(x,H);g.stroke(); }
+
+  // Lawn chair
+  const cX=W*0.76,cY=pY-4;
+  g.fillStyle=lvlIdx>=6?'rgba(80,60,40,0.6)':'rgba(180,100,40,0.75)';
+  g.fillRect(cX,cY-42,8,47); g.fillRect(cX+46,cY-42,8,47);
+  g.fillRect(cX,cY-42,54,11); g.fillRect(cX,cY-16,54,8);
+
+  // Potted plant
+  const pX=W*0.18;
+  g.fillStyle='#9b6030'; g.beginPath(); g.moveTo(pX-14,pY+4);g.lineTo(pX+14,pY+4);g.lineTo(pX+10,pY+28);g.lineTo(pX-10,pY+28);g.fill();
+  const plantCol=lvlIdx===8?'#c8dce8':lvlIdx===6?'#0a0a18':lvlIdx===9?'#380808':'#2d8a10';
+  g.fillStyle=plantCol;
+  for(let i=0;i<5;i++){ const a=-Math.PI/2+i*0.7-1.4; g.beginPath();g.ellipse(pX+Math.cos(a)*16,pY-10+Math.sin(a)*16,12,6,a,0,Math.PI*2);g.fill(); }
+
+  // Vignettes
+  const bv=g.createLinearGradient(0,H*0.87,0,H); bv.addColorStop(0,'transparent');bv.addColorStop(1,'rgba(0,0,0,0.4)');
+  g.fillStyle=bv; g.fillRect(0,H*0.87,W,H*0.13);
+  const lv=g.createLinearGradient(0,0,W*0.13,0); lv.addColorStop(0,'rgba(0,0,0,0.32)');lv.addColorStop(1,'transparent');
+  g.fillStyle=lv; g.fillRect(0,0,W*0.13,H);
+  const rv=g.createLinearGradient(W*0.87,0,W,0); rv.addColorStop(0,'transparent');rv.addColorStop(1,'rgba(0,0,0,0.32)');
+  g.fillStyle=rv; g.fillRect(W*0.87,0,W*0.13,H);
+}
+
+// ═══════════════════════════════════════════════
+//  SQUIRREL DRAW (Canvas 2D)
+// ═══════════════════════════════════════════════
+const gameCanvas=document.getElementById('game-canvas');
+const gc=gameCanvas.getContext('2d');
+
+function drawSquirrel(ctx, s, angry, blood, fr){
+  ctx.save();
+
+  // Color palette based on reference photo + angry state
+  const bodyDark  = angry ? '#4a2800' : '#6B5030';   // dark grey-brown back
+  const bodyMid   = angry ? '#6a3800' : '#8B6840';   // mid body
+  const bellyCol  = angry ? '#c05020' : '#C8A060';   // cream/tan belly
+  const tailBase  = angry ? '#5a3000' : '#7a5820';   // tail dark
+  const tailTip   = angry ? '#aa6020' : '#C89040';   // tail golden tips
+  const legCol    = angry ? '#3a1800' : '#5a3820';
+  const lw        = Math.sin(fr * 0.3) * 0.18;       // leg animation wave
+
+  // ── TAIL — arched HIGH over the back like the photo ──
+  // Big fluffy tail curls up and over
+  ctx.fillStyle = tailBase;
+  ctx.beginPath();
+  ctx.moveTo(s*0.1, -s*0.1);
+  ctx.bezierCurveTo(-s*0.2, -s*0.5,  -s*0.6, -s*1.1, -s*0.2, -s*1.25);
+  ctx.bezierCurveTo( s*0.1, -s*1.38,  s*0.5, -s*1.2,  s*0.45, -s*0.85);
+  ctx.bezierCurveTo( s*0.4, -s*0.5,   s*0.25,-s*0.2,  s*0.1, -s*0.1);
+  ctx.fill();
+  // Tail highlight layer (golden tips like the photo)
+  ctx.fillStyle = tailTip;
+  ctx.beginPath();
+  ctx.moveTo(s*0.05, -s*0.15);
+  ctx.bezierCurveTo(-s*0.15,-s*0.5, -s*0.48,-s*1.05, -s*0.15,-s*1.18);
+  ctx.bezierCurveTo( s*0.08,-s*1.30,  s*0.40,-s*1.12,  s*0.36,-s*0.82);
+  ctx.bezierCurveTo( s*0.32,-s*0.5,   s*0.20,-s*0.2,   s*0.05,-s*0.15);
+  ctx.fill();
+  // Fur texture on tail — radiating strokes
+  ctx.strokeStyle = tailBase; ctx.lineWidth = s*0.025; ctx.lineCap='round';
+  const tailStrokes = [
+    [-0.30,-0.55,-0.45,-0.70],[-0.18,-0.75,-0.28,-0.92],
+    [-0.02,-0.88, s*0.0,-1.05],[0.22,-0.80,0.30,-0.95],
+    [0.35,-0.60,0.44,-0.72],
+  ];
+  tailStrokes.forEach(([x1,y1,x2,y2])=>{
+    ctx.beginPath(); ctx.moveTo(s*x1,s*y1); ctx.lineTo(s*x2,s*y2); ctx.stroke();
+  });
+
+  // ── BACK LEGS — splayed like clinging to a branch ──
+  ctx.fillStyle = legCol;
+  // Left back leg
+  ctx.beginPath();
+  ctx.moveTo(-s*0.35, s*0.15);
+  ctx.bezierCurveTo(-s*0.5, s*0.2, -s*0.55, s*0.42, -s*0.42, s*0.48);
+  ctx.bezierCurveTo(-s*0.28, s*0.54, -s*0.18, s*0.42, -s*0.22, s*0.28);
+  ctx.bezierCurveTo(-s*0.25, s*0.18, -s*0.28, s*0.12, -s*0.35, s*0.15);
+  ctx.fill();
+  // Right back leg
+  ctx.beginPath();
+  ctx.moveTo(-s*0.05, s*0.22);
+  ctx.bezierCurveTo(-s*0.08, s*0.32, -s*0.05, s*0.50, s*0.10, s*0.54);
+  ctx.bezierCurveTo( s*0.22, s*0.56,  s*0.30, s*0.45,  s*0.22, s*0.35);
+  ctx.bezierCurveTo( s*0.15, s*0.24,  s*0.08, s*0.18, -s*0.05, s*0.22);
+  ctx.fill();
+  // Back claws
+  ctx.strokeStyle='#111'; ctx.lineWidth=s*0.03; ctx.lineCap='round';
+  [[-s*0.50,s*0.48],[-s*0.40,s*0.51],[-s*0.30,s*0.50]].forEach(([bx,by])=>{
+    ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(bx-s*0.04,by+s*0.1); ctx.stroke();
+  });
+  [[s*0.08,s*0.54],[s*0.16,s*0.55],[s*0.24,s*0.53]].forEach(([bx,by])=>{
+    ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(bx+s*0.03,by+s*0.1); ctx.stroke();
+  });
+
+  // ── BODY — hunched forward, low to ground like the photo ──
+  ctx.fillStyle = bodyMid;
+  ctx.beginPath();
+  ctx.moveTo(-s*0.38, s*0.0);
+  ctx.bezierCurveTo(-s*0.48,-s*0.12, -s*0.42,-s*0.32, -s*0.20,-s*0.35);
+  ctx.bezierCurveTo( s*0.05,-s*0.38,  s*0.35,-s*0.28,  s*0.50,-s*0.10);
+  ctx.bezierCurveTo( s*0.60,  s*0.08,  s*0.55,  s*0.28,  s*0.38,  s*0.35);
+  ctx.bezierCurveTo( s*0.15,  s*0.42, -s*0.15,  s*0.38, -s*0.38,  s*0.25);
+  ctx.bezierCurveTo(-s*0.50,  s*0.18, -s*0.52,  s*0.08, -s*0.38,  s*0.0);
+  ctx.fill();
+  // Body outline
+  ctx.strokeStyle = bodyDark; ctx.lineWidth = s*0.03;
+  ctx.stroke();
+  // Dark stripe on back (like the photo's dark dorsal area)
+  ctx.fillStyle = bodyDark;
+  ctx.beginPath();
+  ctx.moveTo(-s*0.20,-s*0.34);
+  ctx.bezierCurveTo( s*0.05,-s*0.36,  s*0.30,-s*0.26,  s*0.44,-s*0.12);
+  ctx.bezierCurveTo( s*0.38,-s*0.20,  s*0.08,-s*0.30, -s*0.18,-s*0.28);
+  ctx.bezierCurveTo(-s*0.30,-s*0.26, -s*0.36,-s*0.20, -s*0.20,-s*0.34);
+  ctx.fill();
+  // Belly — cream/tan like the photo
+  ctx.fillStyle = bellyCol;
+  ctx.beginPath();
+  ctx.ellipse(s*0.02, s*0.15, s*0.28, s*0.20, 0.1, 0, Math.PI*2);
+  ctx.fill();
+
+  // ── FRONT LEGS — reaching forward, claws on the ground ──
+  // Animated scramble
+  ctx.fillStyle = legCol;
+  // Left front
+  ctx.beginPath();
+  ctx.moveTo(s*0.25, s*0.10);
+  ctx.bezierCurveTo(s*0.20, s*0.22+lw*s*0.3, s*0.12, s*0.42+lw*s*0.3, s*0.08, s*0.52);
+  ctx.bezierCurveTo(s*0.16, s*0.56, s*0.28, s*0.50, s*0.35, s*0.38);
+  ctx.bezierCurveTo(s*0.40, s*0.26, s*0.38, s*0.12, s*0.25, s*0.10);
+  ctx.fill();
+  // Right front
+  ctx.beginPath();
+  ctx.moveTo(s*0.45, s*0.05);
+  ctx.bezierCurveTo(s*0.48, s*0.18-lw*s*0.3, s*0.52, s*0.36-lw*s*0.3, s*0.55, s*0.48);
+  ctx.bezierCurveTo(s*0.62, s*0.52, s*0.72, s*0.46, s*0.72, s*0.35);
+  ctx.bezierCurveTo(s*0.72, s*0.20, s*0.62, s*0.05, s*0.45, s*0.05);
+  ctx.fill();
+  // Front claws — long sharp like the photo (KEY feature)
+  ctx.strokeStyle='#0a0400'; ctx.lineWidth=s*0.035; ctx.lineCap='round';
+  // Left claws splayed
+  [[-0.06,0.12],[ 0.0, 0.08],[0.06,0.04],[0.10,-0.02]].forEach(([dx,dy])=>{
+    ctx.beginPath();
+    ctx.moveTo(s*0.08+s*dx*0.5, s*0.52+s*dy*0.3);
+    ctx.bezierCurveTo(
+      s*0.08+s*dx*0.5+s*dx*0.3, s*0.52+s*dy*0.3+s*0.08,
+      s*0.08+s*dx*0.8, s*0.56+s*0.06,
+      s*0.08+s*dx, s*0.62+s*dy*0.2
+    );
+    ctx.stroke();
+  });
+  // Right claws
+  [[-0.04,0.10],[0.02,0.06],[0.08,0.02],[0.13,-0.03]].forEach(([dx,dy])=>{
+    ctx.beginPath();
+    ctx.moveTo(s*0.55+s*dx*0.5, s*0.50+s*dy*0.2);
+    ctx.bezierCurveTo(
+      s*0.55+s*dx*0.5, s*0.52+s*dy*0.2+s*0.06,
+      s*0.55+s*dx*0.8, s*0.56,
+      s*0.55+s*dx, s*0.62+s*dy*0.15
+    );
+    ctx.stroke();
+  });
+
+  // ── HEAD — pushed forward, chin low, like the charging pose ──
+  ctx.fillStyle = bodyMid;
+  ctx.beginPath();
+  ctx.moveTo(s*0.30, -s*0.10);
+  ctx.bezierCurveTo(s*0.38,-s*0.30, s*0.68,-s*0.32, s*0.82,-s*0.14);
+  ctx.bezierCurveTo(s*0.95, s*0.02, s*0.90,  s*0.22, s*0.75,  s*0.28);
+  ctx.bezierCurveTo(s*0.55, s*0.36, s*0.32,  s*0.26, s*0.25,  s*0.12);
+  ctx.bezierCurveTo(s*0.22,  s*0.02, s*0.24, -s*0.04, s*0.30, -s*0.10);
+  ctx.fill();
+  ctx.strokeStyle = bodyDark; ctx.lineWidth = s*0.025; ctx.stroke();
+  // Dark cap on top of head
+  ctx.fillStyle = bodyDark;
+  ctx.beginPath();
+  ctx.moveTo(s*0.32,-s*0.09);
+  ctx.bezierCurveTo(s*0.38,-s*0.28, s*0.65,-s*0.30, s*0.78,-s*0.15);
+  ctx.bezierCurveTo(s*0.65,-s*0.26, s*0.40,-s*0.24, s*0.32,-s*0.09);
+  ctx.fill();
+  // Cheek puff (cream like the photo)
+  ctx.fillStyle = bellyCol;
+  ctx.beginPath();
+  ctx.ellipse(s*0.60, s*0.10, s*0.18, s*0.14, 0.2, 0, Math.PI*2);
+  ctx.fill();
+
+  // ── EARS — small round tufted ears like the photo ──
+  ctx.fillStyle = bodyMid;
+  ctx.beginPath(); ctx.ellipse(s*0.44,-s*0.28, s*0.10, s*0.13, -0.3, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(s*0.62,-s*0.30, s*0.09, s*0.12,  0.2, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle=bodyDark; ctx.lineWidth=s*0.02;
+  ctx.beginPath(); ctx.ellipse(s*0.44,-s*0.28, s*0.10, s*0.13, -0.3, 0, Math.PI*2); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(s*0.62,-s*0.30, s*0.09, s*0.12,  0.2, 0, Math.PI*2); ctx.stroke();
+  // Inner ear pink
+  ctx.fillStyle='#d06070';
+  ctx.beginPath(); ctx.ellipse(s*0.44,-s*0.28, s*0.055, s*0.08, -0.3, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(s*0.62,-s*0.30, s*0.048, s*0.07,  0.2, 0, Math.PI*2); ctx.fill();
+
+  // ── EYE — small, dark, beady like the photo ──
+  const eX = s*0.58, eY = -s*0.08;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.ellipse(eX, eY, s*0.09, s*0.08, -0.1, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = bodyDark; ctx.lineWidth = s*0.02; ctx.stroke();
+  // Bloodshot veins
+  ctx.strokeStyle='rgba(180,0,0,0.45)'; ctx.lineWidth=s*0.013;
+  for(let i=0;i<5;i++){
+    const a=i/5*Math.PI*2+0.3;
+    ctx.beginPath();
+    ctx.moveTo(eX+Math.cos(a)*s*0.025, eY+Math.sin(a)*s*0.025);
+    ctx.lineTo(eX+Math.cos(a)*s*0.082, eY+Math.sin(a)*s*0.072);
+    ctx.stroke();
+  }
+  // Dark beady pupil (angry = red)
+  ctx.fillStyle = angry ? '#cc0000' : '#050200';
+  ctx.beginPath(); ctx.ellipse(eX+s*0.01, eY, s*(angry?0.065:0.05), s*(angry?0.072:0.06), 0, 0, Math.PI*2); ctx.fill();
+  // Glint
+  ctx.fillStyle='rgba(255,255,255,0.92)';
+  ctx.beginPath(); ctx.arc(eX-s*0.02, eY-s*0.025, s*0.018, 0, Math.PI*2); ctx.fill();
+  // Angry brow crease
+  if(angry){
+    ctx.strokeStyle=bodyDark; ctx.lineWidth=s*0.03; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(eX-s*0.10, eY-s*0.10); ctx.lineTo(eX+s*0.04, eY-s*0.06); ctx.stroke();
+  }
+
+  // ── NOSE — small black like the photo ──
+  ctx.fillStyle='#1a0a00';
+  ctx.beginPath(); ctx.ellipse(s*0.86, s*0.02, s*0.045, s*0.035, 0, 0, Math.PI*2); ctx.fill();
+  // Nose highlight
+  ctx.fillStyle='rgba(255,255,255,0.3)';
+  ctx.beginPath(); ctx.arc(s*0.84, s*0.005, s*0.012, 0, Math.PI*2); ctx.fill();
+
+  // ── WHISKERS — prominent like the photo ──
+  ctx.strokeStyle='rgba(255,248,220,0.85)'; ctx.lineWidth=s*0.018; ctx.lineCap='round';
+  [[-0.32,-0.04],[-0.26, 0.04],[-0.18,-0.06],
+   [ 0.28,-0.04],[ 0.32, 0.05],[ 0.38,-0.07]].forEach(([wx,wy])=>{
+    ctx.beginPath();
+    ctx.moveTo(s*0.80, s*0.04);
+    ctx.lineTo(s*0.80+s*wx, s*0.04+s*wy);
+    ctx.stroke();
+  });
+
+  // ── MOUTH — wide open like the photo (KEY feature) ──
+  const mOpen = (angry?0.58:0.35) + Math.abs(Math.sin(fr*0.35))*0.18;
+  const mX=s*0.65, mY=s*0.12;
+  // Upper lip
+  ctx.fillStyle='#1a0800';
+  ctx.beginPath();
+  ctx.moveTo(mX-s*0.20, mY);
+  ctx.bezierCurveTo(mX-s*0.12, mY-s*0.06, mX+s*0.12, mY-s*0.06, mX+s*0.20, mY);
+  ctx.bezierCurveTo(mX+s*0.14, mY+s*mOpen*0.4, mX-s*0.14, mY+s*mOpen*0.4, mX-s*0.20, mY);
+  ctx.fill();
+  // Pink inside / tongue
+  ctx.fillStyle='#cc3030';
+  ctx.beginPath();
+  ctx.ellipse(mX, mY+s*mOpen*0.25, s*0.15, s*mOpen*0.20, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Tongue tip curl
+  ctx.fillStyle='#dd4040';
+  ctx.beginPath();
+  ctx.ellipse(mX+s*0.04, mY+s*mOpen*0.34, s*0.08, s*0.06, 0.2, 0, Math.PI*2);
+  ctx.fill();
+  // Upper teeth
+  ctx.fillStyle='#fffff0';
+  [[mX-s*0.10, mY-s*0.01],[mX+s*0.01, mY-s*0.02]].forEach(([fx,fy])=>{
+    ctx.beginPath();
+    ctx.moveTo(fx-s*0.04, fy);
+    ctx.lineTo(fx-s*0.02, fy+s*mOpen*0.28);
+    ctx.lineTo(fx+s*0.04, fy+s*mOpen*0.28);
+    ctx.lineTo(fx+s*0.04, fy);
+    ctx.closePath(); ctx.fill();
+  });
+
+  // ── BLOOD DRIPS — from mouth ──
+  const drops = Math.min(Math.ceil(blood*4), 4);
+  ctx.lineCap='round';
+  for(let b=0; b<drops; b++){
+    const bx = mX - s*0.14 + b*s*0.10;
+    const by = mY + s*mOpen*0.38;
+    const dl = s*(0.10 + b*0.06 + Math.sin(fr*0.18+b)*0.04);
+    ctx.strokeStyle='rgba(170,0,10,0.92)'; ctx.lineWidth=s*0.042;
+    ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(bx,by+dl); ctx.stroke();
+    ctx.fillStyle='#cc0010';
+    ctx.beginPath(); ctx.arc(bx, by+dl+s*0.03, s*0.038, 0, Math.PI*2); ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════
+//  BITE FACE on dedicated canvas
+// ═══════════════════════════════════════════════
+const biteCanvas=document.getElementById('bite-canvas');
+const biteCtx=biteCanvas.getContext('2d');
+let biteAnimFrame=0, biteRaf=null;
+
+function drawBiteFace(progress){
+  // progress 0→1: squirrel zooms in
+  const W=biteCanvas.width=window.innerWidth;
+  const H=biteCanvas.height=window.innerHeight;
+  biteCtx.clearRect(0,0,W,H);
+
+  // Draw HUGE squirrel centered, zoomed in like it's biting the camera
+  const s=Math.min(W,H)*(0.3+progress*0.55); // grows from 30% to 85% of screen
+  biteCtx.save();
+  biteCtx.translate(W/2-s*0.6, H/2+s*0.05);
+  // Enrage during bite
+  drawSquirrel(biteCtx, s, true, 1.0, biteAnimFrame);
+  biteCtx.restore();
+
+  // Blood splatter radial at edges
+  const splat=biteCtx.createRadialGradient(W/2,H/2,s*0.3,W/2,H/2,Math.max(W,H)*0.7);
+  splat.addColorStop(0,'rgba(150,0,0,0)');
+  splat.addColorStop(0.5,'rgba(170,0,0,0.25)');
+  splat.addColorStop(1,'rgba(100,0,0,0.7)');
+  biteCtx.fillStyle=splat; biteCtx.fillRect(0,0,W,H);
+
+  // Blood drip streaks from top
+  biteCtx.fillStyle='rgba(180,0,10,0.75)';
+  for(let i=0;i<8;i++){
+    const bx=W*(0.08+i*0.12+Math.sin(i*2.3)*0.04);
+    const bh=H*(0.05+progress*(0.1+i*0.03)+Math.sin(i*1.7)*0.04);
+    const bw=4+i%3*3;
+    biteCtx.beginPath();
+    biteCtx.moveTo(bx-bw,0); biteCtx.lineTo(bx+bw,0);
+    biteCtx.lineTo(bx+bw*0.5,bh); biteCtx.lineTo(bx-bw*0.5,bh);
+    biteCtx.closePath(); biteCtx.fill();
+    // Drip tip
+    biteCtx.beginPath();biteCtx.arc(bx,bh,bw*1.4,0,Math.PI*2);biteCtx.fill();
+  }
+}
+
+function startBiteAnimation(damage, onDone){
+  const overlay=document.getElementById('bite-overlay');
+  biteCanvas.width=window.innerWidth; biteCanvas.height=window.innerHeight;
+  overlay.classList.add('active');
+  let startTime=null;
+  const duration=700; // ms of build-up
+
+  function animLoop(ts){
+    if(!startTime) startTime=ts;
+    biteAnimFrame++;
+    const elapsed=ts-startTime;
+    const progress=Math.min(1, elapsed/duration);
+    drawBiteFace(progress);
+    if(elapsed<duration){ biteRaf=requestAnimationFrame(animLoop); }
+    else {
+      // Hold for a beat then fade out
+      setTimeout(()=>{
+        overlay.classList.remove('active');
+        biteCtx.clearRect(0,0,biteCanvas.width,biteCanvas.height);
+        onDone && onDone();
+      }, 350);
+    }
+  }
+  biteRaf=requestAnimationFrame(animLoop);
+}
+
+// ═══════════════════════════════════════════════
+//  WARNING ZONE (red pulse near bottom)
+// ═══════════════════════════════════════════════
+// Drawn each frame when squirrel is close to bottom
+function drawWarningZone(ctx, W, H, intensity){
+  if(intensity<=0) return;
+  const wg=ctx.createLinearGradient(0,H*0.72,0,H);
+  wg.addColorStop(0,'transparent');
+  wg.addColorStop(1,`rgba(255,0,0,${0.25*intensity})`);
+  ctx.fillStyle=wg; ctx.fillRect(0,H*0.72,W,H*0.28);
+  // Pulsing text
+  ctx.save();
+  ctx.globalAlpha=intensity*(0.7+Math.sin(frame*0.2)*0.3);
+  ctx.font=`bold ${Math.floor(18+intensity*10)}px 'Cabin Sketch', cursive`;
+  ctx.fillStyle='#ff2020';
+  ctx.textAlign='center';
+  ctx.shadowColor='#ff0000'; ctx.shadowBlur=12;
+  ctx.fillText('⚠ SHOOT IT! ⚠', W/2, H*0.82);
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════
+//  GAME STATE
+// ═══════════════════════════════════════════════
+const TOTAL_LEVELS=10;
+let level=1, score=0, health=100, gameActive=false;
+let squirrelList=[], spawnTimer=null, allTimers=[];
+let shotsFired=0, shotsHit=0, squirrelsKilled=0, squirrelsBit=0, hawkKills=0, killStreak=0, bestStreak=0;
+let mouseX=window.innerWidth/2, mouseY=window.innerHeight/2;
+let frame=0, rafId=null;
+let biting=false; // lock out while bite animation plays
+
+const LEVEL_CONFIG=[
+  {count:5,  spawnDelay:2200, speed:1.1, damage:10},
+  {count:7,  spawnDelay:2000, speed:1.3, damage:12},
+  {count:9,  spawnDelay:1800, speed:1.55,damage:14},
+  {count:11, spawnDelay:1600, speed:1.8, damage:16},
+  {count:13, spawnDelay:1400, speed:2.1, damage:18},
+  {count:15, spawnDelay:1200, speed:2.4, damage:20},
+  {count:17, spawnDelay:1000, speed:2.8, damage:22},
+  {count:20, spawnDelay:850,  speed:3.2, damage:25},
+  {count:23, spawnDelay:700,  speed:3.8, damage:28},
+  {count:28, spawnDelay:500,  speed:4.5, damage:35},
+];
+
+// Squirrels run toward the BOTTOM CENTER of the screen (toward the player/camera)
+// Bite triggers when they reach near the very bottom edge
+const BITE_Y_THRESHOLD = 0.88; // fraction of screen height — squirrel bites when it reaches here
+
+document.addEventListener('mousemove',e=>{
+  mouseX=e.clientX; mouseY=e.clientY;
+  document.getElementById('crosshair').style.left=e.clientX+'px';
+  document.getElementById('crosshair').style.top=e.clientY+'px';
+});
+
+// ── Touch support for mobile ──
+function handleTouch(tx, ty){
+  mouseX=tx; mouseY=ty;
+  document.getElementById('crosshair').style.left=tx+'px';
+  document.getElementById('crosshair').style.top=ty+'px';
+}
+function shootAt(tx, ty){
+  if(!gameActive||biting) return;
+  playGunshot();
+  shotsFired++;
+  const ch=document.getElementById('crosshair');
+  ch.classList.add('fired'); setTimeout(()=>ch.classList.remove('fired'),160);
+  const flash=document.createElement('div');
+  flash.style.cssText='position:fixed;width:80px;height:80px;border-radius:50%;background:radial-gradient(circle,#ffffa0,#ff8800 40%,transparent 70%);pointer-events:none;z-index:80;left:'+tx+'px;top:'+ty+'px;transform:translate(-50%,-50%);animation:shotFlash 0.25s forwards;';
+  document.body.appendChild(flash);
+  setTimeout(()=>flash.remove(),300);
+
+  let hitThisShot=false;
+  for(let i=squirrelList.length-1;i>=0;i--){
+    const sq=squirrelList[i];
+    if(sq.dead||sq.bitten) continue;
+    const dx=tx-sq.x, dy=ty-sq.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    const hitR=Math.max(30, sq.size*1.1);
+    if(dist<hitR){
+      const killed=sq.kill();
+      hitThisShot=true;
+      if(killed){
+        shotsHit++;
+        squirrelsKilled++; killStreak++;
+        if(killStreak>bestStreak) bestStreak=killStreak;
+        hitCombo(tx, ty);
+        playPop();
+        const pts=(sq.isMonster?level*200:sq.isBoss?level*50:level*10)*comboMult;
+        score+=pts; updateHUD();
+        showScorePopup(tx,ty,'+'+pts+(comboMult>1?' x'+comboMult:''));
+        squirrelList.splice(i,1);
+        updateStreakCounter();
+        checkAchievements();
+        if(killStreak>=10 && !hawkUsed){ unlockHawkButton(); }
+      } else if(sq.isBoss){
+        playPop(); updateBossBar();
+      }
+      break;
+    }
+  }
+  // Miss — reset streak and combo
+  if(!hitThisShot){
+    showMiss(tx, ty);
+    resetCombo();
+    if(killStreak>0){ killStreak=0; updateStreakCounter(); }
+  }
+}
+document.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  const t=e.touches[0];
+  handleTouch(t.clientX,t.clientY);
+},{passive:false});
+document.addEventListener('touchstart',e=>{
+  // Don't intercept taps on UI elements (buttons, inputs, overlays)
+  const tag = e.target.tagName.toLowerCase();
+  const isUI = tag==='button'||tag==='input'||tag==='a'||
+    e.target.closest('.screen')||e.target.closest('#hawk-btn')||e.target.closest('#bonus-hawk-btn')||
+    e.target.closest('.powerup-token')||e.target.closest('.acorn-bomb')||
+    e.target.closest('#bite-overlay')||e.target.closest('#hud');
+  if(isUI) return; // let the UI element handle it
+  e.preventDefault();
+  const t=e.touches[0];
+  handleTouch(t.clientX,t.clientY);
+  shootAt(t.clientX,t.clientY);
+},{passive:false});
+
+// ═══════════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════════
+function setGameCanvasActive(active){
+  gameCanvas.style.pointerEvents = active ? 'auto' : 'none';
+}
+function resize(){
+  gameCanvas.width=window.innerWidth; gameCanvas.height=window.innerHeight;
+  animCanvas.width=window.innerWidth; animCanvas.height=window.innerHeight;
+  drawBackground();
+}
+
+function gameLoop(){
+  rafId=requestAnimationFrame(gameLoop);
+  frame++;
+  const W=gameCanvas.width, H=gameCanvas.height;
+  gc.clearRect(0,0,W,H);
+
+  let maxWarning=0;
+
+  for(let i=squirrelList.length-1;i>=0;i--){
+    const sq=squirrelList[i];
+    if(sq.dead||sq.bitten) continue;
+
+    // Target: bottom-center of screen (player POV)
+    const targetX=W/2 + (sq.laneOffset||0);
+    const targetY=H*BITE_Y_THRESHOLD;
+
+    const dx=targetX-sq.x, dy=targetY-sq.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+
+    // Only update angle when not frozen
+    const frozen = frozenSquirrels && !sq.isBoss && !sq.isMonster;
+    if(!frozen) sq.angle=Math.atan2(dy,dx);
+
+    // Close-in acceleration
+    const slowFactor = slowmoActive ? 0.3 : 1.0;
+    const closeBoost=1+Math.max(0,1-dist/(H*0.4))*1.5;
+    // Zero speed when frozen — squirrel stays in place but remains visible + clickable
+    const spd = frozen ? 0 : sq.speed*(sq.angry?1.7:1.0)*closeBoost*slowFactor;
+
+    // How far down the screen the squirrel is (0=top, 1=bottom)
+    const screenProgress=sq.y/H;
+
+    // Go angry in bottom 35% of screen (don't change state when frozen)
+    if(!frozen && !sq.angry && screenProgress>0.65){ sq.angry=true; }
+
+    // Warning intensity: 0 at 70% down, 1 at 87%
+    const warnT=Math.max(0,(screenProgress-0.70)/(0.17));
+    if(warnT>maxWarning) maxWarning=warnT;
+
+    // BITE — squirrel has reached the bottom edge (screen/player)
+    // Frozen squirrels cannot bite — they are suspended
+    if(!frozen && sq.y>=H*BITE_Y_THRESHOLD && !sq.bitten && !biting){
+      sq.bitten=true; sq.dead=true;
+      squirrelList.splice(i,1);
+      triggerBite(sq.damage, sq.onBit);
+      continue;
+    }
+
+    if(!frozen && dist>2){
+      sq.x+=(dx/dist)*spd;
+      sq.y+=(dy/dist)*spd;
+    }
+
+    // Size: grows as squirrel moves down the screen (perspective zoom)
+    const perspT=Math.pow(Math.max(0,sq.y/H),1.1);
+    sq.size=(sq.isMonster?112:sq.isBoss?70:14)+perspT*(sq.isMonster?800:sq.isBoss?500:100);
+
+    // Draw
+    gc.save();
+    gc.translate(sq.x,sq.y);
+    gc.rotate(sq.angle);
+    // Shadow on grass
+    gc.save();
+    gc.globalAlpha=0.18*perspT;
+    gc.fillStyle='#000';
+    gc.beginPath();gc.ellipse(0,sq.size*0.4,sq.size*0.7,sq.size*0.18,0,0,Math.PI*2);gc.fill();
+    gc.restore();
+    if(frozen){
+      // Ice-blue tint overlay on frozen squirrel
+      gc.save();
+      gc.globalAlpha=0.35;
+      gc.fillStyle='#a0e8ff';
+      gc.beginPath(); gc.ellipse(0,0,sq.size*0.7,sq.size*0.55,0,0,Math.PI*2); gc.fill();
+      gc.restore();
+    }
+    drawSquirrel(gc,sq.size,frozen?false:sq.angry,sq.blood,frozen?0:frame+sq.frameOffset);
+    gc.restore();
+  }
+
+  // Warning red zone at bottom when squirrel is close
+  drawWarningZone(gc, W, H, Math.min(1,maxWarning));
+  if(frame%30===0) updateMusicTension();
+
+  // Anim layer
+  tickAnimParticles(frame);
+
+  // Effects
+  for(let i=effects.length-1;i>=0;i--){
+    const ef=effects[i]; ef.life--;
+    if(ef.life<=0){effects.splice(i,1);continue;}
+    const t=ef.life/ef.maxLife;
+    gc.save(); gc.globalAlpha=t*0.88; gc.fillStyle=ef.color;
+    ef.particles.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=0.2;p.vx*=0.96;gc.beginPath();gc.arc(p.x,p.y,p.r*t,0,Math.PI*2);gc.fill();});
+    gc.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  EFFECTS
+// ═══════════════════════════════════════════════
+const effects=[];
+function spawnSplat(x,y){
+  const p=[]; for(let i=0;i<20;i++){const a=Math.random()*Math.PI*2,s=2+Math.random()*7;p.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-4,r:4+Math.random()*9});}
+  effects.push({type:'splat',life:50,maxLife:50,color:'#cc0010',particles:p});
+  const p2=[]; for(let i=0;i<10;i++){const a=Math.random()*Math.PI*2,s=3+Math.random()*8;p2.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-5,r:3+Math.random()*5});}
+  effects.push({type:'splat',life:32,maxLife:32,color:'#ffdd00',particles:p2});
+}
+
+// ═══════════════════════════════════════════════
+//  BITE TRIGGER
+// ═══════════════════════════════════════════════
+function triggerBite(damage, onBit){
+  biting=true;
+  squirrelsBit++;
+  playBite();
+
+  // Shake body
+  document.body.classList.add('shake');
+  setTimeout(()=>document.body.classList.remove('shake'),620);
+
+  // Quick red flash
+  const ov=document.getElementById('damage-overlay');
+  ov.classList.add('flash'); setTimeout(()=>ov.classList.remove('flash'),180);
+
+  // Health bar pulse
+  const hbw=document.getElementById('health-bar-wrap');
+  hbw.classList.add('pulse'); setTimeout(()=>hbw.classList.remove('pulse'),600);
+
+  // Dramatic face zoom-in
+  startBiteAnimation(damage, ()=>{
+    biting=false;
+    // Apply damage AFTER animation so the health drop is visible
+    health=Math.max(0,health-damage);
+    document.getElementById('health-fill').style.width=health+'%';
+    if(health<=0){ gameOver(); return; }
+    onBit && onBit();
+  });
+}
+
+// ═══════════════════════════════════════════════
+//  SQUIRREL FACTORY
+// ═══════════════════════════════════════════════
+function spawnSquirrel(cfg,onKilled,onBit){
+  const W=gameCanvas.width, H=gameCanvas.height;
+  // Spawn along top or sides, high up on screen
+  const side=Math.floor(Math.random()*3); // 0=top, 1=left, 2=right
+  let x,y;
+  if(side===0){ x=W*0.1+Math.random()*W*0.8; y=-60; }
+  else if(side===1){ x=-60; y=Math.random()*H*0.4; }
+  else { x=W+60; y=Math.random()*H*0.4; }
+
+  // Each squirrel has a slightly different lane so they don't all pile on center
+  const laneOffset=(Math.random()-0.5)*W*0.35;
+
+  const sq={
+    x, y, laneOffset,
+    speed:cfg.speed, damage:cfg.damage,
+    angry:false, bitten:false, dead:false,
+    angle:Math.PI/2,
+    size:18,
+    blood:0.3+Math.random()*0.7,
+    frameOffset:Math.floor(Math.random()*100),
+    onKilled, onBit,
+    kill(){
+      if(this.dead||this.bitten) return false;
+      this.dead=true;
+      spawnSplat(this.x,this.y);
+      if(Math.random()<0.20) setTimeout(()=>dropPowerup(this.x,this.y),200);
+      onKilled();
+      return true;
+    }
+  };
+  squirrelList.push(sq);
+}
+
+// ═══════════════════════════════════════════════
+//  SHOOT
+// ═══════════════════════════════════════════════
+document.getElementById('game-canvas').addEventListener('click',e=>{
+  if(!gameActive||biting) return;
+  playGunshot();
+  shotsFired++;
+  const ch=document.getElementById('crosshair');
+  ch.classList.add('fired'); setTimeout(()=>ch.classList.remove('fired'),160);
+
+  const flash=document.createElement('div');
+  flash.style.cssText=`position:fixed;width:70px;height:70px;border-radius:50%;
+    background:radial-gradient(circle,#ffffa0,#ff8800 40%,transparent 70%);
+    pointer-events:none;z-index:80;left:${e.clientX}px;top:${e.clientY}px;
+    transform:translate(-50%,-50%);animation:shotFlash 0.25s forwards;`;
+  document.body.appendChild(flash);
+  setTimeout(()=>flash.remove(),300);
+
+  let hitThisShot=false;
+  for(let i=squirrelList.length-1;i>=0;i--){
+    const sq=squirrelList[i];
+    if(sq.dead||sq.bitten) continue;
+    const dx=e.clientX-sq.x, dy=e.clientY-sq.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    const hitR=Math.max(30, sq.size*1.1);
+    if(dist<hitR){
+      const killed=sq.kill();
+      hitThisShot=true;
+      if(killed){
+        shotsHit++;
+        squirrelsKilled++; killStreak++;
+        if(killStreak>bestStreak) bestStreak=killStreak;
+        hitCombo(e.clientX, e.clientY);
+        playPop();
+        const pts = (sq.isMonster?level*200:sq.isBoss?level*50:level*10)*comboMult;
+        score+=pts;
+        updateHUD();
+        showScorePopup(e.clientX,e.clientY,`+${pts}${comboMult>1?" x"+comboMult:""}`);
+        squirrelList.splice(i,1);
+        updateStreakCounter();
+        checkAchievements();
+        if(killStreak>=10 && !hawkUsed){ unlockHawkButton(); }
+      } else if(sq.isBoss){
+        // Boss hit but not dead — play pop + show damage
+        playPop();
+        updateBossBar();
+      }
+      break;
+    }
+  }
+  // Miss — reset streak
+  if(!hitThisShot){
+    resetCombo();
+  if(!hitThisShot){
+    showMiss(e.clientX, e.clientY);
+      killStreak=0;
+      updateStreakCounter();
+    }
+  }
+});
+
+// ═══════════════════════════════════════════════
+//  GAME FLOW
+// ═══════════════════════════════════════════════
+function buildProgressDots(){
+  const wrap=document.getElementById('level-progress'); wrap.innerHTML='';
+  for(let i=1;i<=TOTAL_LEVELS;i++){
+    const d=document.createElement('div');
+    d.className='progress-dot'+(i<level?' done':i===level?' current':'');
+    wrap.appendChild(d);
+  }
+}
+
+function startGame(){
+    level=1; score=0; health=100; biting=false; hawkUsed=false; bonusHawkUsed=false; hideHawkButton(); hideBonusHawkButton();
+  shotsFired=0; shotsHit=0; squirrelsKilled=0; squirrelsBit=0; hawkKills=0; killStreak=0; bestStreak=0;
+  resetCombo(); comboCount=0; comboMult=1;
+  document.getElementById('streak-counter').classList.remove('show');
+  // Hide all overlay screens
+  ['start-screen','gameover-screen','win-screen','level-clear-screen'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.classList.add('hidden');
+  });
+  updateHUD(); buildProgressDots();
+  // Cancel any existing loop then restart fresh
+  document.getElementById('crosshair').style.display='block';
+  if(rafId){ cancelAnimationFrame(rafId); rafId=null; }
+  frame=0;
+  resetAchievementsForRun();
+  renderBadges();
+  gameLoop();
+  if(!musicMuted) setTimeout(startMusic, 500);
+  startLevel();
+}
+function restartGame(){ startGame(); }
+
+function startLevel(){
+  clearAll(); gameActive=true; setGameCanvasActive(true); updateHUD(); buildProgressDots();
+  drawBackground(); initParticles(level-1);
+  const banner=document.getElementById('level-banner');
+  banner.textContent=level===10?'⚠️ FINAL LEVEL ⚠️':`🐿 LEVEL ${level}`;
+  if(level===10){ setTimeout(()=>showEvent('🦅','Bonus Gift!','You get a FREE Hawk Call for the final level! Use it wisely. 🦅🦅'), 2500); }
+  banner.classList.add('show'); setTimeout(()=>banner.classList.remove('show'),1800);
+
+  // Hawk button: revealed by 10-kill streak, not level-locked
+  if(hawkUsed){ hideHawkButton(); }
+  // Bonus hawk button: gifted on level 10
+  if(level===10 && !bonusHawkUsed){ showBonusHawkButton(); } else { hideBonusHawkButton(); }
+
+  const cfg=LEVEL_CONFIG[level-1];
+  const total=cfg.count;
+  document.getElementById('hud-remaining').textContent=total;
+  let remaining=total, spawned=0;
+
+  function spawnNext(){
+    if(!gameActive) return;
+    if(spawned<total){
+      spawnSquirrel(cfg,
+        ()=>{ remaining--; document.getElementById('hud-remaining').textContent=remaining; if(remaining<=0 && !bossActive) levelClear(); },
+        ()=>{ remaining--; document.getElementById('hud-remaining').textContent=remaining; if(remaining<=0&&health>0 && !bossActive) levelClear(); }
+      );
+      spawned++;
+      spawnTimer=setTimeout(spawnNext, cfg.spawnDelay*(0.7+Math.random()*0.6));
+    } else if(level===10 && !bossActive){
+      // Spawn the SQUIRREL MONSTER on level 10
+      setTimeout(()=>{ if(gameActive) spawnMonster(cfg); }, 1500);
+    } else if([3,6,9].includes(level) && !bossActive){
+      // Spawn regular boss on levels 3,6,9
+      setTimeout(()=>{ if(gameActive) spawnBoss(cfg); }, 1500);
+    }
+  }
+  bossActive=false; bossSq=null;
+  document.getElementById('boss-bar-wrap').classList.remove('show');
+  spawnNext();
+  startAcornTimer();
+}
+
+function levelClear(){
+  if(!gameActive) return;
+  gameActive=false; clearAll();
+  checkAchievements();
+  acornDeflects=0;
+  const bonus=level*50+Math.floor(health*level); score+=bonus; updateHUD();
+  if(level>=TOTAL_LEVELS){ setTimeout(winGame,600); return; }
+  document.getElementById('level-clear-screen').classList.remove('hidden');
+  document.getElementById('clear-title').textContent=`Level ${level} Clear!`;
+  document.getElementById('clear-emoji').textContent=level>=9?'🔥':'🎉';
+  document.getElementById('clear-sub').textContent=`Bonus: +${bonus} pts  |  Health: ${health}%`;
+  document.getElementById('clear-score').textContent=`⭐ Total Score: ${score}`;
+  // Show health pack every 5 levels
+  const hp = document.getElementById('health-pack');
+  hp.classList.remove('show','collected');
+  if(level % 5 === 0){
+    hp.classList.add('show');
+    hp.querySelector('.hp-label').textContent='🩹 HEALTH PACK — Click to collect! +25 HP';
+  }
+}
+function nextLevel(){ level++; document.getElementById('level-clear-screen').classList.add('hidden'); startLevel(); }
+
+function gameOver(){
+  gameActive=false; clearAll(); stopMusic();
+  document.getElementById('crosshair').style.display='none';
+  document.getElementById('gameover-score').textContent=`⭐ Score: ${score}`;
+  const accFinal = shotsFired>0 ? Math.round((shotsHit/shotsFired)*100) : 0;
+  const isNewPB = savePersonalBest(score, level, accFinal);
+  if(isNewPB) setTimeout(()=>showScorePopup(window.innerWidth/2, window.innerHeight*0.4, '🏅 New Personal Best!'), 600);
+  document.getElementById('gameover-stats').innerHTML=buildStatsHTML();
+  setTimeout(()=>document.getElementById('gameover-screen').classList.remove('hidden'), 400);
+  // Animate accuracy bar after render
+  setTimeout(()=>{
+    const fill=document.querySelector('#gameover-stats .accuracy-bar-fill');
+    if(fill){ const w=fill.style.width; fill.style.width='0'; requestAnimationFrame(()=>{ fill.style.width=w; }); }
+  }, 500);
+}
+function winGame(){
+  gameActive=false; clearAll(); stopMusic();
+  document.getElementById('crosshair').style.display='none';
+  document.getElementById('win-score').textContent=`⭐ Final Score: ${score}`;
+  const accFinal = shotsFired>0 ? Math.round((shotsHit/shotsFired)*100) : 0;
+  const isNewPB = savePersonalBest(score, level, accFinal);
+  if(isNewPB) setTimeout(()=>showScorePopup(window.innerWidth/2, window.innerHeight*0.4, '🏅 New Personal Best!'), 600);
+  document.getElementById('win-stats').innerHTML=buildStatsHTML();
+  document.getElementById('win-screen').classList.remove('hidden');
+  // Animate accuracy bar after render
+  setTimeout(()=>{
+    const fill=document.querySelector('#win-stats .accuracy-bar-fill');
+    if(fill){ const w=fill.style.width; fill.style.width='0'; requestAnimationFrame(()=>{ fill.style.width=w; }); }
+  }, 300);
+}
+function updateHUD(){
+  document.getElementById('hud-level').textContent=level;
+  document.getElementById('hud-score').textContent=score;
+  document.getElementById('hud-remaining').textContent=LEVEL_CONFIG[level-1]?.count||0;
+}
+function clearAll(){
+  setGameCanvasActive(false); hideBonusHawkButton(); clearTimeout(spawnTimer); allTimers.forEach(t=>clearTimeout(t)); allTimers=[];
+  squirrelList=[]; effects.length=0;
+  clearPowerups(); clearAcorns();
+  bossActive=false; bossSq=null;
+  document.getElementById('boss-bar-wrap').classList.remove('show');
+}
+function showScorePopup(x,y,text){
+  const el=document.createElement('div'); el.className='score-popup'; el.textContent=text;
+  el.style.cssText=`left:${x-20}px;top:${y-30}px;`; document.body.appendChild(el);
+  setTimeout(()=>el.remove(),900);
+}
+
+
+// ═══════════════════════════════════════════════
+//  HAWK SYSTEM
+// ═══════════════════════════════════════════════
+let hawkUsed = false;
+let bonusHawkUsed = false;
+let hawks = []; // active hawk elements
+let hawkRafId = null;
+
+function playHawkScreech() {
+  try {
+    const ctx = getAudio(), t = ctx.currentTime;
+    // Piercing bird screech: descending sweep
+    const osc = ctx.createOscillator(); osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(2200, t);
+    osc.frequency.exponentialRampToValueAtTime(400, t + 0.5);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0, t); g.gain.linearRampToValueAtTime(0.4, t+0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    const dist = ctx.createWaveShaper();
+    const curve = new Float32Array(256);
+    for(let i=0;i<256;i++){ const x=i*2/256-1; curve[i]=x<0?-Math.pow(-x,0.5):Math.pow(x,0.5); }
+    dist.curve = curve;
+    osc.connect(dist); dist.connect(g); g.connect(ctx.destination);
+    osc.start(t); osc.stop(t+0.6);
+    // Second shorter screech
+    const osc2 = ctx.createOscillator(); osc2.type = 'sawtooth';
+    osc2.frequency.setValueAtTime(1800, t+0.4);
+    osc2.frequency.exponentialRampToValueAtTime(600, t+0.75);
+    const g2 = ctx.createGain(); g2.gain.setValueAtTime(0.3,t+0.4); g2.gain.exponentialRampToValueAtTime(0.001,t+0.78);
+    osc2.connect(g2); g2.connect(ctx.destination);
+    osc2.start(t+0.4); osc2.stop(t+0.8);
+  } catch(e){}
+}
+
+function playHawkGrab() {
+  try {
+    const ctx = getAudio(), t = ctx.currentTime;
+    // Thud + flutter
+    const len = Math.floor(ctx.sampleRate*0.12);
+    const buf = ctx.createBuffer(1,len,ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,0.8)*(Math.sin(i*0.8)>0?1:-0.5);
+    const src = ctx.createBufferSource(); src.buffer=buf;
+    const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=700;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.7,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.12);
+    src.connect(lp); lp.connect(g); g.connect(ctx.destination); src.start(t); src.stop(t+0.14);
+  } catch(e){}
+}
+
+function updateStreakCounter(){
+  if(hawkUsed){ document.getElementById('streak-counter').classList.remove('show'); return; }
+  const el=document.getElementById('streak-counter');
+  if(killStreak<=0){ el.classList.remove('show'); return; }
+  el.classList.add('show');
+  const pips='🔥'.repeat(Math.min(killStreak,10));
+  el.textContent=`${pips} ${killStreak}/10 Kill Streak`;
+}
+
+function unlockHawkButton(){
+  document.getElementById('streak-counter').classList.remove('show');
+  showHawkButton();
+  // Dramatic unlock flash
+  const el=document.getElementById('hawk-btn');
+  el.style.animation='none'; void el.offsetWidth;
+  el.style.animation='hawkUnlock 0.5s cubic-bezier(0.34,1.56,0.64,1), hawkPulse 1.2s 0.5s ease-in-out infinite';
+  showScorePopup(window.innerWidth/2, window.innerHeight*0.75, '🦅 HAWKS UNLOCKED!');
+}
+
+
+function showBonusHawkButton(){
+  const btn = document.getElementById('bonus-hawk-btn');
+  if(!bonusHawkUsed) btn.style.display = 'block';
+}
+function hideBonusHawkButton(){
+  document.getElementById('bonus-hawk-btn').style.display = 'none';
+}
+function callBonusHawks(){
+  if(bonusHawkUsed || !gameActive) return;
+  bonusHawkUsed = true;
+  hideBonusHawkButton();
+
+  // Banner — different color from regular hawk call
+  const banner = document.getElementById('hawk-banner');
+  banner.textContent = '🦅🦅 BONUS HAWKS! 🦅🦅';
+  banner.style.color = '#80d8ff';
+  banner.classList.add('show');
+  setTimeout(()=>{ banner.classList.remove('show'); banner.style.color=''; }, 2000);
+
+  playHawkScreech();
+  setTimeout(playHawkScreech, 500);
+  setTimeout(playHawkScreech, 1000);
+
+  // Spawn hawks — more than normal (all squirrels + 4 extra)
+  const targets = [...squirrelList.filter(sq => !sq.dead && !sq.bitten)];
+  const numHawks = targets.length + 4;
+  for(let h=0; h<numHawks; h++){
+    setTimeout(()=>{
+      if(!gameActive) return;
+      const target = targets[h] || targets[Math.floor(Math.random()*Math.max(1,targets.length))];
+      if(!target) return;
+      spawnHawk(target, h);
+    }, h * 150);
+  }
+}
+
+function showHawkButton() {
+  const btn = document.getElementById('hawk-btn');
+  if (!hawkUsed) btn.style.display = 'block';
+}
+function hideHawkButton() {
+  document.getElementById('hawk-btn').style.display = 'none';
+}
+
+function callTheHawks() {
+  if (hawkUsed || !gameActive) return;
+  hawkUsed = true;
+  hideHawkButton();
+
+  // Banner
+  const banner = document.getElementById('hawk-banner');
+  banner.classList.add('show');
+  setTimeout(() => banner.classList.remove('show'), 2000);
+
+  playHawkScreech();
+  setTimeout(playHawkScreech, 600);
+
+  // Spawn one hawk per live squirrel (+ 2 extras for drama)
+  const targets = [...squirrelList.filter(sq => !sq.dead && !sq.bitten)];
+  const numHawks = targets.length + 2;
+
+  for (let h = 0; h < numHawks; h++) {
+    setTimeout(() => {
+      if (!gameActive) return;
+      const target = targets[h] || targets[Math.floor(Math.random()*targets.length)];
+      if (!target) return;
+      spawnHawk(target, h);
+    }, h * 180);
+  }
+}
+
+function spawnHawk(targetSq, idx) {
+  const W = gameCanvas.width, H = gameCanvas.height;
+  // Hawks dive in from the top edges
+  const el = document.createElement('div');
+  el.className = 'hawk-el';
+  el.textContent = '🦅';
+  document.body.appendChild(el);
+
+  // Start position: random top edge
+  let hx = Math.random() * W;
+  let hy = -60;
+  el.style.left = hx + 'px';
+  el.style.top  = hy + 'px';
+
+  const speed = 6 + Math.random() * 4;
+  let grabbed = false;
+
+  // Screech offset per hawk
+  setTimeout(playHawkScreech, idx * 200);
+
+  const loop = setInterval(() => {
+    if (!gameActive) { clearInterval(loop); el.remove(); return; }
+
+    // If target is dead pick a new live one
+    let sq = targetSq;
+    if (sq.dead || sq.bitten) {
+      const alive = squirrelList.filter(s => !s.dead && !s.bitten);
+      if (alive.length === 0) { clearInterval(loop); el.remove(); return; }
+      sq = alive[Math.floor(Math.random() * alive.length)];
+      targetSq = sq;
+    }
+
+    const dx = sq.x - hx;
+    const dy = sq.y - hy;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+
+    // Flip hawk emoji based on direction
+    el.style.transform = dx < 0 ? 'scaleX(-1)' : 'scaleX(1)';
+
+    if (dist < 40 && !grabbed) {
+      // GRAB — kill the squirrel
+      grabbed = true;
+      clearInterval(loop);
+      playHawkGrab();
+      if (sq.kill()) {
+        hawkKills++;
+        score += level * 10;
+        updateHUD();
+        showScorePopup(sq.x, sq.y, `+${level*10} 🦅`);
+        squirrelList.splice(squirrelList.indexOf(sq), 1);
+      }
+      // Hawk flies off upward with the squirrel
+      el.textContent = '🦅🐿';
+      el.style.fontSize = '40px';
+      let ux = hx, uy = hy;
+      const flyOff = setInterval(() => {
+        ux += (Math.random()-0.5)*6;
+        uy -= 9;
+        el.style.left = ux+'px'; el.style.top = uy+'px';
+        if (uy < -100) { clearInterval(flyOff); el.remove(); }
+      }, 16);
+    } else if (!grabbed) {
+      hx += (dx/dist)*speed;
+      hy += (dy/dist)*speed;
+      el.style.left = hx+'px';
+      el.style.top  = hy+'px';
+    }
+  }, 16);
+}
+
+
+// ═══════════════════════════════════════════════
+//  END-GAME STATS
+// ═══════════════════════════════════════════════
+function getRating(acc) {
+  if (acc >= 90) return { label:'🎯 Dead-Eye',       bg:'#1b5e20', color:'#a5d6a7' };
+  if (acc >= 75) return { label:'🔫 Sharpshooter',   bg:'#1a237e', color:'#90caf9' };
+  if (acc >= 55) return { label:'💪 Decent Shot',    bg:'#e65100', color:'#ffcc80' };
+  if (acc >= 35) return { label:'😅 Spray & Pray',   bg:'#4a148c', color:'#ce93d8' };
+  return              { label:'🤦 Who Gave You a Gun?', bg:'#b71c1c', color:'#ef9a9a' };
+}
+
+function buildStatsHTML() {
+  const acc = shotsFired > 0 ? Math.round((shotsHit / shotsFired) * 100) : 0;
+  const misses = shotsFired - shotsHit;
+  const rating = getRating(acc);
+  const barColor = acc >= 75 ? '#66bb6a' : acc >= 50 ? '#ffd54f' : '#ef5350';
+
+  return `
+    <h3>📊 After-Action Report</h3>
+    <div class="accuracy-bar-wrap">
+      <div class="accuracy-bar-bg">
+        <div class="accuracy-bar-fill" style="width:${acc}%;background:${barColor}"></div>
+      </div>
+      <div class="accuracy-label">${acc}% Accuracy
+        <span class="rating-badge" style="background:${rating.bg};color:${rating.color}">${rating.label}</span>
+      </div>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">🔥 Best Kill Streak</span>
+      <span class="stat-val" style="color:#ffb300">${bestStreak} kills in a row</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">🔫 Shots Fired</span>
+      <span class="stat-val">${shotsFired}</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">💥 Shots Hit</span>
+      <span class="stat-val">${shotsHit}</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">🌬️ Misses</span>
+      <span class="stat-val ${misses > shotsHit ? 'danger' : ''}">${misses}</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">🐿 Squirrels Shot</span>
+      <span class="stat-val highlight">${squirrelsKilled}</span>
+    </div>
+    ${hawkKills > 0 ? `<div class="stat-row">
+      <span class="stat-label">🦅 Hawk Kills</span>
+      <span class="stat-val" style="color:#ffb300">${hawkKills}</span>
+    </div>` : ''}
+    <div class="stat-row">
+      <span class="stat-label">🩸 Times Bitten</span>
+      <span class="stat-val ${squirrelsBit > 0 ? 'danger' : ''}">${squirrelsBit}</span>
+    </div>
+  `;
+}
+
+
+// ═══════════════════════════════════════════════
+//  LEADERBOARD  (localStorage — shared in same browser)
+//  Note: for a true cross-device board, a backend is needed.
+//  This uses localStorage so scores persist across sessions
+//  on the same device, and shows globally if hosted with
+//  the storage API below.
+// ═══════════════════════════════════════════════
+
+
+
+
+
+
+
+
+
+
+
+// ═══════════════════════════════════════════════
+//  BOSS SQUIRREL SYSTEM
+// ═══════════════════════════════════════════════
+let bossActive = false;
+let bossHitsLeft = 3;
+let bossSq = null;
+
+function spawnBoss(cfg) {
+  if (bossActive) return;
+  bossActive = true; bossHitsLeft = 3;
+  const W=gameCanvas.width, H=gameCanvas.height;
+
+  // Announce
+  const banner = document.getElementById('level-banner');
+  banner.textContent = '👑 BOSS SQUIRREL! 👑';
+  banner.style.color = '#ff4444';
+  banner.classList.add('show');
+  setTimeout(() => { banner.classList.remove('show'); banner.style.color = ''; }, 2200);
+
+  // Show boss bar
+  document.getElementById('boss-bar-wrap').classList.add('show');
+  document.getElementById('boss-bar-fill').style.width = '100%';
+
+  // Play ominous sound
+  try {
+    const ctx=getAudio(), t=ctx.currentTime;
+    const osc=ctx.createOscillator(); osc.type='sawtooth';
+    osc.frequency.setValueAtTime(60,t); osc.frequency.linearRampToValueAtTime(40,t+1.2);
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.4,t); g.gain.exponentialRampToValueAtTime(0.001,t+1.3);
+    osc.connect(g); g.connect(getAudio().destination); osc.start(t); osc.stop(t+1.4);
+  } catch(e){}
+
+  const laneOffset = (Math.random()-0.5)*W*0.2;
+  const sq = {
+    x: W/2, y: -120, laneOffset,
+    speed: cfg.speed*0.7,   // slower but massive
+    damage: cfg.damage*2,
+    angry: false, bitten: false, dead: false,
+    angle: Math.PI/2, size: 22,
+    blood: 1.0, frameOffset: 0,
+    isBoss: true, hitsLeft: 3,
+    onKilled: ()=>{}, onBit: ()=>{},
+    kill() {
+      if(this.dead||this.bitten) return false;
+      this.hitsLeft--;
+      updateBossBar();
+      // Hit flash
+      try {
+        const ctx=getAudio(),t=ctx.currentTime;
+        const o=ctx.createOscillator(); o.type='square';
+        o.frequency.setValueAtTime(180,t); o.frequency.exponentialRampToValueAtTime(60,t+0.18);
+        const g=ctx.createGain(); g.gain.setValueAtTime(0.5,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.2);
+        o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+0.22);
+      } catch(e){}
+      if(this.hitsLeft<=0){
+        this.dead=true;
+        spawnSplat(this.x,this.y); spawnSplat(this.x-30,this.y+20); spawnSplat(this.x+30,this.y-10);
+        score+=level*50; updateHUD();
+        showScorePopup(this.x,this.y,'💥 BOSS DOWN! +'+level*50);
+        document.getElementById('boss-bar-wrap').classList.remove('show');
+        bossActive=false; bossSq=null; bossKills++; checkAchievements();
+        // Check if all regulars already gone
+        const remaining=squirrelList.filter(s=>!s.dead&&!s.bitten&&!s.isBoss).length;
+        if(remaining===0) setTimeout(levelClear, 800);
+        // Drop 2 powerups
+        setTimeout(()=>dropPowerup(this.x-40,this.y), 200);
+        setTimeout(()=>dropPowerup(this.x+40,this.y), 400);
+        return true;
+      }
+      // Flash red on boss
+      showScorePopup(this.x,this.y-50,'💢 HIT! '+this.hitsLeft+' left');
+      return false; // not dead yet — just stunned
+    }
+  };
+  bossSq = sq;
+  squirrelList.push(sq);
+}
+
+
+// ═══════════════════════════════════════════════
+//  SQUIRREL MONSTER — Level 10 final boss (8x size, 5 hits)
+// ═══════════════════════════════════════════════
+function spawnMonster(cfg) {
+  if (bossActive) return;
+  bossActive = true;
+  const W=gameCanvas.width, H=gameCanvas.height;
+
+  // Epic announcement
+  const banner = document.getElementById('level-banner');
+  banner.textContent = '☠️ SQUIRREL MONSTER! ☠️';
+  banner.style.color = '#ff00ff';
+  banner.style.fontSize = 'clamp(28px,5vw,60px)';
+  banner.classList.add('show');
+  setTimeout(() => { banner.classList.remove('show'); banner.style.color=''; banner.style.fontSize=''; }, 3000);
+
+  // Show boss bar in monster purple
+  const bossWrap = document.getElementById('boss-bar-wrap');
+  document.getElementById('boss-bar-label').textContent = '☠️ SQUIRREL MONSTER ☠️';
+  document.getElementById('boss-bar-label').style.color = '#ff00ff';
+  document.getElementById('boss-bar-fill').style.background = 'linear-gradient(90deg,#6a00c8,#ff00ff)';
+  document.getElementById('boss-bar-fill').style.width = '100%';
+  bossWrap.classList.add('show');
+
+  // Terrifying roar sound
+  try {
+    const ctx=getAudio(), t=ctx.currentTime;
+    // Deep growl
+    const osc=ctx.createOscillator(); osc.type='sawtooth';
+    osc.frequency.setValueAtTime(40,t); osc.frequency.linearRampToValueAtTime(25,t+2.0);
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.55,t); g.gain.exponentialRampToValueAtTime(0.001,t+2.2);
+    const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=300;
+    osc.connect(lp); lp.connect(g); g.connect(ctx.destination); osc.start(t); osc.stop(t+2.3);
+    // High screech layered on top
+    const osc2=ctx.createOscillator(); osc2.type='sawtooth';
+    osc2.frequency.setValueAtTime(800,t+0.2); osc2.frequency.exponentialRampToValueAtTime(200,t+1.2);
+    const g2=ctx.createGain(); g2.gain.setValueAtTime(0.3,t+0.2); g2.gain.exponentialRampToValueAtTime(0.001,t+1.4);
+    osc2.connect(g2); g2.connect(ctx.destination); osc2.start(t+0.2); osc2.stop(t+1.5);
+  } catch(e){}
+
+  const sq = {
+    x: W/2, y: -200, laneOffset: 0,
+    speed: cfg.speed * 0.5,  // slow and terrifying
+    damage: cfg.damage * 3,  // devastating bite
+    angry: false, bitten: false, dead: false,
+    angle: Math.PI/2, size: 30,
+    blood: 1.0, frameOffset: 0,
+    isBoss: false, isMonster: true, hitsLeft: 5,
+    onKilled: ()=>{}, onBit: ()=>{},
+    kill() {
+      if(this.dead||this.bitten) return false;
+      this.hitsLeft--;
+      updateBossBar();
+      // Meaty hit sound
+      try {
+        const ctx=getAudio(),t=ctx.currentTime;
+        const o=ctx.createOscillator(); o.type='square';
+        o.frequency.setValueAtTime(120,t); o.frequency.exponentialRampToValueAtTime(40,t+0.25);
+        const g=ctx.createGain(); g.gain.setValueAtTime(0.6,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.28);
+        o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+0.3);
+      } catch(e){}
+      if(this.hitsLeft<=0){
+        this.dead=true;
+        // Epic death explosion — 6 splats
+        for(let i=0;i<6;i++){
+          setTimeout(()=>{ spawnSplat(this.x+(-80+Math.random()*160), this.y+(-60+Math.random()*120)); }, i*80);
+        }
+        score+=level*200; updateHUD();
+        showScorePopup(this.x, this.y, '☠️ MONSTER SLAIN! +'+level*200);
+        document.getElementById('boss-bar-label').textContent = '👑 BOSS SQUIRREL 👑';
+        document.getElementById('boss-bar-label').style.color = '#ff4444';
+        document.getElementById('boss-bar-wrap').classList.remove('show');
+        bossActive=false; bossSq=null; bossKills++; checkAchievements();
+        // Drop 3 powerups
+        setTimeout(()=>dropPowerup(this.x-60, this.y), 150);
+        setTimeout(()=>dropPowerup(this.x,    this.y), 300);
+        setTimeout(()=>dropPowerup(this.x+60, this.y), 450);
+        const remaining=squirrelList.filter(s=>!s.dead&&!s.bitten&&!s.isMonster).length;
+        if(remaining===0) setTimeout(levelClear, 1200);
+        return true;
+      }
+      const hitMsgs=['💢 5 SHOTS NEEDED!','💢 4 MORE!','💢 3 MORE!','💢 2 MORE!','💢 LAST HIT!'];
+      showScorePopup(this.x, this.y-80, hitMsgs[5-this.hitsLeft-1] || '💢 HIT!');
+      return false;
+    }
+  };
+  bossSq = sq;
+  squirrelList.push(sq);
+}
+
+function updateBossBar(){
+  if(!bossSq) return;
+  const maxHits = bossSq.isMonster ? 5 : 3;
+  const pct = Math.max(0, bossSq.hitsLeft / maxHits * 100);
+  const fill = document.getElementById('boss-bar-fill');
+  fill.style.width = pct+'%';
+  fill.style.background = bossSq.isMonster
+    ? 'linear-gradient(90deg,#6a00c8,#ff00ff)'
+    : 'linear-gradient(90deg,#ff1111,#ff6600)';
+}
+
+// ═══════════════════════════════════════════════
+//  POWER-UP SYSTEM
+// ═══════════════════════════════════════════════
+const POWERUPS = [
+  { id:'freeze',    icon:'❄️',  label:'FREEZE!',    dur:4000 },
+  { id:'slowmo',    icon:'🐌',  label:'SLOW-MO',    dur:5000 },
+  { id:'shotgun',   icon:'💥',  label:'SHOTGUN',    dur:0    }, // instant
+];
+let activePowerup = null;
+let powerupEndTime = 0;
+let powerupTimerInt = null;
+let frozenSquirrels = false;
+let slowmoActive = false;
+let tokens = []; // active powerup token DOM elements
+
+function dropPowerup(x, y) {
+  const pu = POWERUPS[Math.floor(Math.random()*POWERUPS.length)];
+  const el = document.createElement('div');
+  el.className = 'powerup-token';
+  el.textContent = pu.icon;
+  el.style.left = x+'px';
+  el.style.top  = y+'px';
+  el.style.transform = 'translate(-50%,-50%)';
+  document.body.appendChild(el);
+  tokens.push(el);
+
+  el.addEventListener('click', ()=>{ collectPowerup(pu, el, x, y); });
+  el.addEventListener('touchstart', (ev)=>{ ev.preventDefault(); collectPowerup(pu, el, x, y); }, {passive:false});
+
+  // Auto-despawn after 8s
+  el._despawn = setTimeout(()=>{ el.remove(); tokens=tokens.filter(t=>t!==el); }, 8000);
+}
+
+function collectPowerup(pu, el, x, y) {
+  clearTimeout(el._despawn);
+  el.classList.add('collected');
+  setTimeout(()=>{ el.remove(); tokens=tokens.filter(t=>t!==el); }, 400);
+
+  showScorePopup(x, y, pu.icon+' '+pu.label);
+
+  try {
+    const ctx=getAudio(),t=ctx.currentTime;
+    const o=ctx.createOscillator(); o.type='sine';
+    o.frequency.setValueAtTime(600,t); o.frequency.linearRampToValueAtTime(1200,t+0.2);
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.35,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.25);
+    o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+0.28);
+  } catch(e){}
+
+  if (pu.id==='shotgun') {
+    // Instant: kill all on-screen squirrels in a blast radius from center
+    activateShotgun(x, y);
+    return;
+  }
+
+  // Timed powerups
+  clearTimeout(powerupTimerInt);
+  frozenSquirrels = false;
+  slowmoActive    = false;
+  document.getElementById('slowmo-overlay').classList.remove('active');
+  document.getElementById('freeze-overlay').classList.remove('active');
+
+  activePowerup = pu;
+  powerupEndTime = Date.now() + pu.dur;
+
+  document.getElementById('powerup-icon').textContent = pu.icon;
+  document.getElementById('powerup-label').textContent = pu.label;
+  document.getElementById('powerup-hud').classList.add('show');
+  document.getElementById('powerup-timer-fill').style.width = '100%';
+
+  if (pu.id==='freeze'){
+    frozenSquirrels=true;
+    document.getElementById('freeze-overlay').classList.add('active');
+  }
+  if (pu.id==='slowmo'){
+    slowmoActive=true;
+    document.getElementById('slowmo-overlay').classList.add('active');
+  }
+
+  powerupTimerInt = setInterval(()=>{
+    const left = powerupEndTime - Date.now();
+    if(left<=0){
+      clearInterval(powerupTimerInt);
+      frozenSquirrels=false; slowmoActive=false;
+      activePowerup=null;
+      document.getElementById('powerup-hud').classList.remove('show');
+      document.getElementById('slowmo-overlay').classList.remove('active');
+      document.getElementById('freeze-overlay').classList.remove('active');
+    } else {
+      document.getElementById('powerup-timer-fill').style.width=(left/pu.dur*100)+'%';
+    }
+  }, 100);
+}
+
+function activateShotgun(cx, cy) {
+  const W=gameCanvas.width, H=gameCanvas.height;
+
+  // Full-screen expanding ring from center
+  const ring = document.createElement('div');
+  ring.className='shotgun-ring';
+  const fullR = Math.sqrt(W*W+H*H); // big enough to cover corners
+  ring.style.cssText=`left:${W/2}px;top:${H/2}px;width:${fullR}px;height:${fullR}px;`;
+  document.body.appendChild(ring);
+  setTimeout(()=>ring.remove(),500);
+
+  // Flash the screen white briefly
+  const flash = document.createElement('div');
+  flash.style.cssText='position:fixed;inset:0;background:rgba(255,255,200,0.45);pointer-events:none;z-index:85;';
+  document.body.appendChild(flash);
+  setTimeout(()=>flash.remove(),200);
+
+  // Kill EVERY squirrel on screen (boss counts as one hit)
+  let blasted=0;
+  for(let i=squirrelList.length-1;i>=0;i--){
+    const sq=squirrelList[i]; if(sq.dead||sq.bitten) continue;
+    if(sq.isBoss||sq.isMonster){
+      sq.kill(); // one hit on boss/monster
+    } else {
+      if(sq.kill()){
+        squirrelsKilled++; score+=level*10; blasted++;
+        spawnSplat(sq.x, sq.y);
+        squirrelList.splice(i,1);
+      }
+    }
+  }
+
+  // Play big boom sound
+  try {
+    const ctx=getAudio(), t=ctx.currentTime;
+    const len=Math.floor(ctx.sampleRate*0.4);
+    const buf=ctx.createBuffer(1,len,ctx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,0.4);
+    const src=ctx.createBufferSource(); src.buffer=buf;
+    const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=800;
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.7,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.4);
+    src.connect(lp); lp.connect(g); g.connect(ctx.destination); src.start(t); src.stop(t+0.45);
+    // Low boom
+    const osc=ctx.createOscillator(); osc.type='sine';
+    osc.frequency.setValueAtTime(80,t); osc.frequency.exponentialRampToValueAtTime(20,t+0.3);
+    const g2=ctx.createGain(); g2.gain.setValueAtTime(0.5,t); g2.gain.exponentialRampToValueAtTime(0.001,t+0.35);
+    osc.connect(g2); g2.connect(ctx.destination); osc.start(t); osc.stop(t+0.4);
+  } catch(e){}
+
+  if(blasted>0){
+    updateHUD();
+    showScorePopup(W/2, H/2, '💥 BLAST! x'+blasted+' +'+blasted*level*10);
+  } else {
+    showScorePopup(W/2, H/2, '💥 BOOM!');
+  }
+}
+
+function clearPowerups(){
+  tokens.forEach(t=>{ clearTimeout(t._despawn); t.remove(); });
+  tokens=[];
+  clearInterval(powerupTimerInt);
+  frozenSquirrels=false; slowmoActive=false; activePowerup=null;
+  document.getElementById('powerup-hud').classList.remove('show');
+  document.getElementById('slowmo-overlay').classList.remove('active');
+  document.getElementById('freeze-overlay').classList.remove('active');
+}
+
+// ═══════════════════════════════════════════════
+//  ACORN BOMB SYSTEM
+// ═══════════════════════════════════════════════
+let acorns = [];   // active acorn DOM elements + state
+let acornInt = null;
+
+function startAcornTimer(){
+  clearInterval(acornInt);
+  acornInt = setInterval(()=>{
+    if(!gameActive || squirrelList.length===0) return;
+    // Random angry squirrel throws an acorn
+    const angrySq = squirrelList.filter(sq=>!sq.dead&&!sq.bitten&&sq.angry);
+    if(angrySq.length===0) return;
+    const thrower = angrySq[Math.floor(Math.random()*angrySq.length)];
+    throwAcorn(thrower.x, thrower.y);
+  }, 4500 - Math.min(level*300, 3000)); // faster on higher levels
+}
+
+function throwAcorn(fromX, fromY){
+  const W=gameCanvas.width, H=gameCanvas.height;
+  const el = document.createElement('div');
+  el.className = 'acorn-bomb';
+  el.textContent = '🌰';
+  el.style.left = fromX+'px';
+  el.style.top  = fromY+'px';
+  document.body.appendChild(el);
+
+  // Target: random screen-edge position (toward player/camera)
+  const targetX = W*0.2+Math.random()*W*0.6;
+  const targetY = H*0.75+Math.random()*H*0.18;
+  const duration = 1400 - level*60; // ms
+
+  const startTime = Date.now();
+  const acornState = { el, hit:false };
+  acorns.push(acornState);
+
+  // Warning glow that pulses before impact
+  el.style.filter = 'drop-shadow(0 0 10px rgba(255,100,0,0.9))';
+
+  const anim = setInterval(()=>{
+    if(acornState.hit){ clearInterval(anim); return; }
+    const progress = (Date.now()-startTime)/duration;
+    if(progress>=1){
+      clearInterval(anim);
+      if(!acornState.hit){
+        // Hit! Damage player
+        acornState.hit=true;
+        el.remove(); acorns=acorns.filter(a=>a!==acornState);
+        takeDamageFromAcorn();
+      }
+      return;
+    }
+    // Arc trajectory
+    const x = fromX + (targetX-fromX)*progress;
+    const arc = Math.sin(progress*Math.PI)*(-120); // arc up
+    const y = fromY + (targetY-fromY)*progress + arc;
+    el.style.left = x+'px';
+    el.style.top  = y+'px';
+    // Grow as it approaches
+    el.style.fontSize = (20+progress*22)+'px';
+    // Spin
+    el.style.transform = `translate(-50%,-50%) rotate(${progress*720}deg)`;
+  }, 16);
+
+  // Click/tap to deflect
+  const deflect = (ev)=>{
+    ev.stopPropagation();
+    if(acornState.hit) return;
+    acornState.hit=true;
+    clearInterval(anim);
+    el.classList.add('deflected');
+    setTimeout(()=>{ el.remove(); acorns=acorns.filter(a=>a!==acornState); },400);
+    score+=25; updateHUD();
+    acornDeflects++; showScorePopup(parseFloat(el.style.left), parseFloat(el.style.top), '🌰 DEFLECTED! +25'); checkAchievements();
+    try {
+      const ctx=getAudio(),t=ctx.currentTime;
+      const o=ctx.createOscillator(); o.type='square';
+      o.frequency.setValueAtTime(400,t); o.frequency.exponentialRampToValueAtTime(800,t+0.1);
+      const g=ctx.createGain(); g.gain.setValueAtTime(0.3,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.12);
+      o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+0.14);
+    } catch(e){}
+  };
+  el.addEventListener('click', deflect);
+  el.addEventListener('touchstart', deflect, {passive:false});
+}
+
+function takeDamageFromAcorn(){
+  if(!gameActive||biting) return;
+  health=Math.max(0,health-8);
+  document.getElementById('health-fill').style.width=health+'%';
+  const ov=document.getElementById('damage-overlay');
+  ov.classList.add('flash'); setTimeout(()=>ov.classList.remove('flash'),180);
+  showScorePopup(gameCanvas.width/2, gameCanvas.height*0.8, '🌰 BONKED! -8hp');
+  try {
+    const ctx=getAudio(),t=ctx.currentTime;
+    const len=Math.floor(ctx.sampleRate*0.1);
+    const buf=ctx.createBuffer(1,len,ctx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,1.5);
+    const src=ctx.createBufferSource(); src.buffer=buf;
+    const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=500;
+    const g=ctx.createGain(); g.gain.setValueAtTime(0.6,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.1);
+    src.connect(lp); lp.connect(g); g.connect(ctx.destination); src.start(t); src.stop(t+0.12);
+  } catch(e){}
+  if(health<=0) gameOver();
+}
+
+function clearAcorns(){
+  acorns.forEach(a=>{ try{ a.el.remove(); }catch(e){} a.hit=true; });
+  acorns=[];
+  clearInterval(acornInt);
+}
+
+
+
+function collectHealthPack(){
+  const hp = document.getElementById('health-pack');
+  if(!hp.classList.contains('show') || hp.classList.contains('collected')) return;
+  hp.classList.add('collected');
+  const gained = Math.min(25, 100-health);
+  health = Math.min(100, health+25);
+  document.getElementById('health-fill').style.width = health+'%';
+  hp.querySelector('.hp-label').textContent = gained>0 ? `+${gained} HP restored! ❤️` : 'Already full health!';
+  // Play a cheerful pickup sound
+  try {
+    const ctx=getAudio(), t=ctx.currentTime;
+    [523,659,784,1047].forEach((freq,i)=>{
+      const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=freq;
+      const g=ctx.createGain(); g.gain.setValueAtTime(0,t+i*0.08); g.gain.linearRampToValueAtTime(0.25,t+i*0.08+0.02);
+      g.gain.exponentialRampToValueAtTime(0.001,t+i*0.08+0.18);
+      o.connect(g); g.connect(ctx.destination); o.start(t+i*0.08); o.stop(t+i*0.08+0.2);
+    });
+  } catch(e){}
+  setTimeout(()=>hp.classList.remove('show'), 600);
+}
+
+
+// ═══════════════════════════════════════════════
+//  MUSIC ENGINE — layered procedural synth
+// ═══════════════════════════════════════════════
+let musicNodes = {};
+let musicMuted = false;
+let musicRunning = false;
+let masterGain = null;
+let tensionGain = null;
+let beatInterval = null;
+let melodyTimeout = null;
+let musicTempo = 1.0; // 1.0 = normal, goes up to 1.6 under pressure
+
+const NOTES = {
+  // Minor pentatonic in A — tense but not annoying
+  bass:    [55, 65.41, 73.42, 82.41, 98.00],
+  melody:  [220, 261.63, 293.66, 329.63, 392.00, 440],
+  tension: [110, 130.81, 146.83, 164.81],
+};
+
+function startMusic() {
+  if (musicRunning || musicMuted) return;
+  musicRunning = true;
+  const ctx = getAudio();
+  masterGain = ctx.createGain();
+  masterGain.gain.setValueAtTime(0, ctx.currentTime);
+  masterGain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 2);
+  masterGain.connect(ctx.destination);
+
+  // Tension layer (drones under pressure)
+  tensionGain = ctx.createGain();
+  tensionGain.gain.value = 0;
+  tensionGain.connect(masterGain);
+
+  scheduleBeat();
+  scheduleMelody();
+  scheduleTensionDrone();
+}
+
+function stopMusic() {
+  musicRunning = false;
+  clearInterval(beatInterval); clearTimeout(melodyTimeout);
+  if (masterGain) {
+    try { masterGain.gain.linearRampToValueAtTime(0, getAudio().currentTime + 0.8); } catch(e){}
+    setTimeout(() => { try { masterGain.disconnect(); } catch(e){} masterGain = null; }, 900);
+  }
+}
+
+function toggleMute() {
+  musicMuted = !musicMuted;
+  document.getElementById('mute-btn').textContent = musicMuted ? '🔇' : '🎵';
+  if (musicMuted) { stopMusic(); }
+  else if (gameActive) { startMusic(); }
+}
+
+function setMusicTension(t) {
+  // t: 0 = calm, 1 = full panic
+  musicTempo = 1.0 + t * 0.7;
+  if (tensionGain && gameActive) {
+    try { tensionGain.gain.linearRampToValueAtTime(t * 0.12, getAudio().currentTime + 0.5); } catch(e){}
+  }
+}
+
+function scheduleBeat() {
+  if (!musicRunning || musicMuted) return;
+  const ctx = getAudio();
+  const t = ctx.currentTime;
+  const interval = (0.5 / musicTempo); // beat interval in seconds
+
+  // Kick: short sine thump
+  const kick = ctx.createOscillator();
+  kick.type = 'sine';
+  kick.frequency.setValueAtTime(120, t);
+  kick.frequency.exponentialRampToValueAtTime(40, t + 0.08);
+  const kg = ctx.createGain();
+  kg.gain.setValueAtTime(0.25, t); kg.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+  kick.connect(kg); kg.connect(masterGain);
+  kick.start(t); kick.stop(t + 0.12);
+
+  // Hi-hat on offbeat
+  const hat = ctx.createOscillator();
+  hat.type = 'square'; hat.frequency.value = 800;
+  const hg = ctx.createGain();
+  hg.gain.setValueAtTime(0.04, t + interval * 0.5);
+  hg.gain.exponentialRampToValueAtTime(0.001, t + interval * 0.5 + 0.04);
+  const hf = ctx.createBiquadFilter(); hf.type = 'highpass'; hf.frequency.value = 3000;
+  hat.connect(hf); hf.connect(hg); hg.connect(masterGain);
+  hat.start(t + interval * 0.5); hat.stop(t + interval * 0.5 + 0.05);
+
+  // Bass pluck every 2 beats
+  if (Math.floor(ctx.currentTime / interval) % 2 === 0) {
+    const note = NOTES.bass[Math.floor(Math.random() * NOTES.bass.length)];
+    const bass = ctx.createOscillator();
+    bass.type = 'triangle'; bass.frequency.value = note;
+    const bg = ctx.createGain();
+    bg.gain.setValueAtTime(0.18, t + 0.01); bg.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    bass.connect(bg); bg.connect(masterGain);
+    bass.start(t + 0.01); bass.stop(t + 0.35);
+  }
+
+  beatInterval = setTimeout(scheduleBeat, interval * 1000);
+}
+
+function scheduleMelody() {
+  if (!musicRunning || musicMuted) return;
+  const ctx = getAudio();
+  const t = ctx.currentTime;
+  const note = NOTES.melody[Math.floor(Math.random() * NOTES.melody.length)];
+  const gap = (0.8 + Math.random() * 1.2) / musicTempo;
+
+  // Only play melody occasionally and softly
+  if (Math.random() < 0.55) {
+    const osc = ctx.createOscillator();
+    osc.type = 'sine'; osc.frequency.value = note;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.07, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    osc.connect(g); g.connect(masterGain);
+    osc.start(t); osc.stop(t + 0.28);
+  }
+  melodyTimeout = setTimeout(scheduleMelody, gap * 1000);
+}
+
+function scheduleTensionDrone() {
+  if (!musicRunning || musicMuted || !tensionGain) return;
+  const ctx = getAudio();
+  const freq = NOTES.tension[Math.floor(Math.random() * NOTES.tension.length)];
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth'; osc.frequency.value = freq;
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 400;
+  osc.connect(lp); lp.connect(tensionGain);
+  osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 4);
+  setTimeout(scheduleTensionDrone, 3800);
+}
+
+// Update music tension based on how many squirrels are near bottom
+function updateMusicTension() {
+  if (!gameActive || !musicRunning) return;
+  const H = gameCanvas.height;
+  let maxT = 0;
+  squirrelList.forEach(sq => {
+    if (!sq.dead && !sq.bitten) {
+      const t = Math.max(0, (sq.y / H - 0.5) / 0.4);
+      if (t > maxT) maxT = t;
+    }
+  });
+  setMusicTension(Math.min(1, maxT));
+}
+
+// ═══════════════════════════════════════════════
+//  COMBO MULTIPLIER
+// ═══════════════════════════════════════════════
+let comboCount = 0;
+let comboTimer = null;
+let comboMult = 1;
+const COMBO_WINDOW = 2200; // ms between kills to maintain combo
+const COMBO_THRESHOLDS = [
+  { count:3,  mult:2, label:'DOUBLE!',  color:'#ffd54f' },
+  { count:5,  mult:3, label:'TRIPLE!',  color:'#ff9800' },
+  { count:8,  mult:4, label:'MEGA x4!', color:'#ff5722' },
+  { count:12, mult:5, label:'INSANE x5!',color:'#e91e63' },
+];
+
+function hitCombo(x, y) {
+  comboCount++;
+  clearTimeout(comboTimer);
+  comboTimer = setTimeout(resetCombo, COMBO_WINDOW);
+
+  // Find current threshold
+  let active = null;
+  for (const th of COMBO_THRESHOLDS) {
+    if (comboCount >= th.count) active = th;
+  }
+
+  if (active && active.mult !== comboMult) {
+    comboMult = active.mult;
+    showComboDisplay(active);
+    playComboSound(active.mult);
+  }
+
+  // Update HUD multiplier
+  const multEl = document.getElementById('combo-mult');
+  if (multEl && comboMult > 1) {
+    multEl.textContent = 'x' + comboMult;
+    multEl.classList.add('active');
+  }
+}
+
+function resetCombo() {
+  comboCount = 0; comboMult = 1;
+  const multEl = document.getElementById('combo-mult');
+  if(multEl) multEl.classList.remove('active');
+  const disp = document.getElementById('combo-display');
+  if(disp){ disp.classList.remove('show'); disp.classList.add('hide');
+    setTimeout(() => disp.classList.remove('hide'), 200); }
+}
+
+function showComboDisplay(th) {
+  const el = document.getElementById('combo-display');
+  el.textContent = th.label;
+  el.style.color = th.color;
+  el.classList.remove('show','hide');
+  void el.offsetWidth;
+  el.classList.add('show');
+  setTimeout(() => {
+    el.classList.remove('show'); el.classList.add('hide');
+    setTimeout(() => el.classList.remove('hide'), 200);
+  }, 1200);
+}
+
+function playComboSound(mult) {
+  try {
+    const ctx = getAudio(), t = ctx.currentTime;
+    const freqs = [523, 659, 784, 988, 1175];
+    for (let i = 0; i < mult; i++) {
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(freqs[i] || 1175, t + i * 0.07);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.2, t + i * 0.07);
+      g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.07 + 0.2);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t + i * 0.07); o.stop(t + i * 0.07 + 0.22);
+    }
+  } catch(e){}
+}
+
+// ═══════════════════════════════════════════════
+//  ACHIEVEMENTS
+// ═══════════════════════════════════════════════
+const ACHIEVEMENTS = [
+  { id:'first_blood',  icon:'🩸', name:'First Blood',      tip:'Kill your first squirrel',        check:()=> squirrelsKilled >= 1 },
+  { id:'dead_eye',     icon:'🎯', name:'Dead-Eye',         tip:'Finish a level at 90%+ accuracy',  check:()=> shotsHit>0&&shotsFired>0&&Math.round(shotsHit/shotsFired*100)>=90 },
+  { id:'untouchable',  icon:'🛡️', name:'Untouchable',      tip:'Clear a level with zero bites',    check:()=> squirrelsBit===0&&level>1 },
+  { id:'hawk_master',  icon:'🦅', name:'Hawk Master',      tip:'Use the Hawk Button',              check:()=> hawkUsed===true },
+  { id:'boss_slayer',  icon:'💀', name:'Boss Slayer',       tip:'Kill your first boss squirrel',    check:()=> bossKills>=1 },
+  { id:'exterminator', icon:'☠️', name:'Exterminator',     tip:'Kill 50 squirrels total',          check:()=> squirrelsKilled>=50 },
+  { id:'combo_king',   icon:'🌀', name:'Combo King',        tip:'Hit a x4 combo or higher',        check:()=> comboMult>=4 },
+  { id:'survivor',     icon:'❤️', name:'Survivor',          tip:'Reach level 5',                   check:()=> level>=5 },
+  { id:'veteran',      icon:'🏆', name:'Veteran',           tip:'Reach level 8',                   check:()=> level>=8 },
+  { id:'untouched',    icon:'💎', name:'Flawless Victory',  tip:'Win the game with no bites ever', check:()=> squirrelsBit===0&&level>9 },
+  { id:'hawk_streak',  icon:'🔥', name:'On Fire',           tip:'Kill 10 in a row without missing',check:()=> bestStreak>=10 },
+  { id:'acorn_dodge',  icon:'🌰', name:'Acorn Dodger',      tip:'Deflect 3 acorn bombs in one level',check:()=> acornDeflects>=3 },
+];
+
+let unlockedAchievements = new Set();
+let bossKills = 0;
+let acornDeflects = 0;
+let achToastQueue = [];
+let achToastShowing = false;
+
+function checkAchievements() {
+  ACHIEVEMENTS.forEach(ach => {
+    if (!unlockedAchievements.has(ach.id) && ach.check()) {
+      unlockedAchievements.add(ach.id);
+      queueAchievementToast(ach);
+      renderBadges();
+    }
+  });
+}
+
+function queueAchievementToast(ach) {
+  achToastQueue.push(ach);
+  if (!achToastShowing) showNextToast();
+}
+
+function showNextToast() {
+  if (achToastQueue.length === 0) { achToastShowing = false; return; }
+  achToastShowing = true;
+  const ach = achToastQueue.shift();
+  const toast = document.getElementById('ach-toast');
+  const achIcon = document.getElementById('ach-icon');
+  const achName = document.getElementById('ach-name');
+  if(!toast || !achIcon || !achName) return;
+  achIcon.textContent = ach.icon;
+  achName.textContent = ach.name;
+  toast.classList.add('show');
+  // Play unlock chime
+  try {
+    const ctx=getAudio(),t=ctx.currentTime;
+    [880,1109,1318].forEach((f,i)=>{
+      const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=f;
+      const g=ctx.createGain(); g.gain.setValueAtTime(0.15,t+i*0.1); g.gain.exponentialRampToValueAtTime(0.001,t+i*0.1+0.3);
+      o.connect(g); g.connect(ctx.destination); o.start(t+i*0.1); o.stop(t+i*0.1+0.35);
+    });
+  } catch(e){}
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(showNextToast, 400);
+  }, 2800);
+}
+
+function renderBadges() {
+  const strip = document.getElementById('badge-strip');
+  if (!strip) return;
+  try {
+  strip.innerHTML = ACHIEVEMENTS.map(ach => {
+    const has = unlockedAchievements.has(ach.id);
+    return `<span class="badge${has?' unlocked':''}" data-tip="${ach.name}: ${ach.tip}" title="${ach.name}">${ach.icon}</span>`;
+  }).join('');
+  } catch(e){}
+}
+
+function resetAchievementsForRun() {
+  // Don't reset unlocked — they persist across runs
+  bossKills = 0; acornDeflects = 0;
+}
+
+
+
+function shareScoreText(){
+  const acc = shotsFired>0 ? Math.round((shotsHit/shotsFired)*100) : 0;
+  const rating = getRating(acc);
+  const lines = [
+    '🐿️ PEERLESS SQUIRREL SHOOTER',
+    '─────────────────────────',
+    '⭐ Score:     ' + score.toLocaleString() + ' pts',
+    '🏆 Level:     ' + level + '/10',
+    '🎯 Accuracy:  ' + acc + '% — ' + rating.label,
+    '💥 Kills:     ' + squirrelsKilled + ' squirrels',
+    '🔥 Best Streak: ' + bestStreak + ' in a row',
+    squirrelsBit>0 ? '🩸 Bitten:    ' + squirrelsBit + 'x' : '🛡️ Never bitten!',
+    hawkKills>0 ? '🦅 Hawk Kills: ' + hawkKills : null,
+    '─────────────────────────',
+    '🐿️ Think you can beat me? Play at:',
+    window.location.href.split('?')[0],
+  ].filter(Boolean).join('\n');
+
+  if(navigator.share){
+    navigator.share({ title:'Peerless Squirrel Shooter', text:lines })
+      .catch(()=>copyToClipboard(lines));
+  } else {
+    copyToClipboard(lines);
+  }
+}
+
+function copyToClipboard(text){
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>showShareToast('✅ Score copied to clipboard!')).catch(()=>fallbackCopyText(text));
+  } else { fallbackCopyText(text); }
+}
+
+function fallbackCopyText(text){
+  const ta=document.createElement('textarea');
+  ta.value=text; ta.style.cssText='position:fixed;opacity:0;top:0;left:0';
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand('copy'); showShareToast('✅ Score copied!'); }
+  catch(e){ showShareToast('⚠️ Copy failed — try manually'); }
+  document.body.removeChild(ta);
+}
+
+function showShareToast(msg){
+  // Reuse float text for simple feedback
+  showScorePopup(window.innerWidth/2, window.innerHeight*0.6, msg);
+}
+
+
+// ═══════════════════════════════════════════════
+//  PERSONAL BEST
+// ═══════════════════════════════════════════════
+const PB_KEY = 'pss_personal_best_v1';
+
+function loadPersonalBest() {
+  try {
+    const raw = localStorage.getItem(PB_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch(e) { return null; }
+}
+
+function savePersonalBest(sc, lvl, acc) {
+  try {
+    const current = loadPersonalBest();
+    if (!current || sc > current.score) {
+      localStorage.setItem(PB_KEY, JSON.stringify({ score: sc, level: lvl, acc }));
+      return true; // new record!
+    }
+    return false;
+  } catch(e) { return false; }
+}
+
+function showPersonalBest() {
+  const pb = loadPersonalBest();
+  const el = document.getElementById('personal-best');
+  if (!el) return;
+  if (pb && pb.score > 0) {
+    el.textContent = `🏅 Your Best: Level ${pb.level}/10 · ${pb.score.toLocaleString()} pts · ${pb.acc}% accuracy`;
+    el.classList.add('show');
+  } else {
+    el.classList.remove('show');
+  }
+}
+
+
+
+function showMiss(x, y) {
+  const el = document.createElement('div');
+  el.className = 'miss-puff';
+  el.textContent = 'miss';
+  el.style.left = x + 'px';
+  el.style.top  = y + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 750);
+}
+
+// Inject keyframes
+const ss=document.createElement('style');
+ss.textContent=`
+  @keyframes shotFlash{0%{opacity:1;transform:translate(-50%,-50%) scale(0.2)}50%{opacity:1;transform:translate(-50%,-50%) scale(1.4)}100%{opacity:0;transform:translate(-50%,-50%) scale(0.9)}}
+  @keyframes hawkUnlock{0%{transform:translateX(-50%) scale(0.3);opacity:0}60%{transform:translateX(-50%) scale(1.15)}100%{transform:translateX(-50%) scale(1);opacity:1}}
+`;
+document.head.appendChild(ss);
+
+// INIT
+showPersonalBest();
+window.addEventListener('resize',()=>{ resize(); drawBackground(); initParticles(typeof level!=='undefined'?level-1:0); });
+resize();
+gameLoop();
+</script>
+</body>
+</html>
